@@ -1,0 +1,38 @@
+networks:
+  consensus:
+
+services:
+  etcd:
+    image: "${ETCD_IMAGE_NAME}:${ETCD_IMAGE_VERSION}"
+    networks:
+      - consensus
+    ports:
+      - "${EXTERNAL_CLIENT_PORT}:${ETCD_CLIENT_CONTAINER_PORT}"
+      - "${EXTERNAL_GRPC_PORT}:${ETCD_GRPC_CONTAINER_PORT}"
+    environment:
+      - ETCD_NAME=${ETCD_INSTANCE_NAME}
+      - ETCD_CLIENT_PORT=${ETCD_CLIENT_PORT}
+      - ETCD_GRPC_PORT=${ETCD_GRPC_PORT}
+      - ETCD_INITIAL_CLUSTER=${ETCD_INITIAL_CLUSTER}
+      - ETCD_LISTEN_CLIENT_URLS=http://${ETCD_LISTEN_IP}:${ETCD_CLIENT_CONTAINER_PORT}
+      - ETCD_ADVERTISE_CLIENT_URLS=http://${HOST_IP}:${EXTERNAL_CLIENT_PORT}
+      - ETCD_LISTEN_PEER_URLS=http://${ETCD_LISTEN_IP}:${ETCD_GRPC_CONTAINER_PORT}
+      - ETCD_INITIAL_ADVERTISE_PEER_URLS=http://${HOST_IP}:${EXTERNAL_GRPC_PORT}
+      - ETCD_INITIAL_CLUSTER_TOKEN=${ETCD_CLUSTER_TOKEN}
+      - ETCD_INITIAL_CLUSTER_STATE=${ETCD_CLUSTER_STATE}
+    env_file:
+      - "./.env"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  da:
+    image: "${DA_IMAGE_NAME}:${DA_IMAGE_VERSION}"
+    networks:
+      - consensus
+    volumes:
+      - "${DA_VOLUME_PATH}:${DA_CONTAINER_VOLUME_PATH}"
+      - "/var/run/docker.sock:/var/run/docker.sock"
+    environment:
+      - CONSENSUS_CONTAINER=${CONSENSUS_CONTAINER_NAME}
+    env_file:
+      - "./.env"

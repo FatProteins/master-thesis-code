@@ -1,0 +1,20 @@
+ARG ARCH=amd64
+#FROM --platform=linux/${ARCH} gcr.io/distroless/static-debian11
+FROM --platform=linux/${ARCH} ubuntu:23.10
+
+COPY bin/etcd /usr/local/bin/
+COPY bin/etcdctl /usr/local/bin/
+COPY bin/etcdutl /usr/local/bin/
+
+#RUN apt-get update
+
+WORKDIR /var/etcd/
+WORKDIR /var/lib/etcd/
+
+EXPOSE 2379 2380
+
+# Define default command.
+#ARG CLUSTER_STRING
+#ENV CLUSTER=${CLUSTER_STRING}
+#CMD ["bash", "-c", "/usr/local/bin/etcd --initial-advertise-peer-urls http://${ETCD_IP}:${ETCD_GRPC_PORT} --listen-peer-urls http://${ETCD_IP}:${ETCD_GRPC_PORT} --advertise-client-urls http://${ETCD_IP}:${ETCD_CLIENT_PORT} --listen-client-urls http://${ETCD_IP}:${ETCD_CLIENT_PORT} --initial-cluster ${CLUSTER}"]
+CMD /usr/local/bin/etcd
