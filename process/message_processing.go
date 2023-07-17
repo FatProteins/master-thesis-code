@@ -2,9 +2,9 @@ package process
 
 import (
 	"context"
-	"github.com/FatProteins/master-thesis/network"
-	"github.com/FatProteins/master-thesis/network/protocol"
-	"github.com/FatProteins/master-thesis/setup"
+	"github.com/FatProteins/master-thesis-code/network"
+	"github.com/FatProteins/master-thesis-code/network/protocol"
+	"github.com/FatProteins/master-thesis-code/setup"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 )

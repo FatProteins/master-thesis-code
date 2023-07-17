@@ -12,7 +12,10 @@ actions:
     pause-command: "docker pause ${CONSENSUS_CONTAINER}"
     continue-command: "docker unpause ${CONSENSUS_CONTAINER}"
   stop:
-    probability: 0.1
+    probability: 0.2
     max-duration: 10
     stop-command: "docker stop ${CONSENSUS_CONTAINER}"
     restart-command: "docker restart ${CONSENSUS_CONTAINER}"
+  resend-last-message:
+    probability: 0
+    max-duration: 0

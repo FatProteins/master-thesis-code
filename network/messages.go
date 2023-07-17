@@ -3,7 +3,7 @@ package network
 import (
 	"errors"
 	"fmt"
-	"github.com/FatProteins/master-thesis/network/protocol"
+	"github.com/FatProteins/master-thesis-code/network/protocol"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 	"reflect"

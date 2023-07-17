@@ -2,7 +2,7 @@
 
 set -e
 
-PROJECT_ROOT=$(pwd | sed 's/master-thesis\/deploy.*/master-thesis/g')
+PROJECT_ROOT=$(pwd | sed 's/master-thesis-code\/deploy.*/master-thesis-code/g')
 DEPLOY_DIR="${PROJECT_ROOT}/deploy"
 CLUSTER_DIR="${DEPLOY_DIR}/cluster"
 TEMP_DEPLOYMENT_DIR="${CLUSTER_DIR}/temp"

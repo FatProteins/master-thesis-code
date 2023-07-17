@@ -1,6 +1,7 @@
 package setup
 
 import (
+	"errors"
 	"gonum.org/v1/gonum/floats"
 	"gonum.org/v1/gonum/stat/distuv"
 	"gopkg.in/yaml.v3"
@@ -64,7 +65,46 @@ func ReadFaultConfig(path string) (FaultConfig, error) {
 		return config, err
 	}
 
+	err = config.verifyConfig()
+	if err != nil {
+		return config, err
+	}
+
 	return config, nil
+}
+
+func (config *FaultConfig) verifyConfig() error {
+	baseErr := errors.New("Config error")
+	if len(config.UnixDomainSocketPath) == 0 {
+		return errors.Join(baseErr, errors.New("Unix domain socket path is empty"))
+	}
+
+	if len(config.Actions.Pause.PauseCommand) == 0 {
+		return errors.Join(baseErr, errors.New("Pause command is empty"))
+	}
+
+	if len(config.Actions.Pause.ContinueCommand) == 0 {
+		return errors.Join(baseErr, errors.New("Unpause command is empty"))
+	}
+
+	if len(config.Actions.Stop.StopCommand) == 0 {
+		return errors.Join(baseErr, errors.New("Stop command is empty"))
+	}
+
+	if len(config.Actions.Stop.RestartCommand) == 0 {
+		return errors.Join(baseErr, errors.New("Restart command is empty"))
+	}
+
+	return nil
+}
+
+func (config *FaultConfig) String() (string, error) {
+	yamlBytes, err := yaml.Marshal(config)
+	if err != nil {
+		return "", err
+	}
+
+	return string(yamlBytes), nil
 }
 
 type ActionPicker struct {

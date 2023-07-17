@@ -2,7 +2,7 @@
 
 set -e
 
-PROJECT_ROOT=$(pwd | sed 's/master-thesis\/deploy.*/master-thesis/g')
+PROJECT_ROOT=$(pwd | sed 's/master-thesis-code\/deploy.*/master-thesis-code/g')
 DEPLOY_DIR="${PROJECT_ROOT}/deploy"
 LOCAL_DIR="${DEPLOY_DIR}/local"
 
@@ -12,6 +12,9 @@ do
   case "$1" in
   "--skip-install")
     SKIP_INSTALL=1
+    ;;
+  "--skip-etcd-build")
+    SKIP_ETCD_BUILD=1
     ;;
   "--skip-da-build")
     SKIP_DA_BUILD=1
@@ -23,7 +26,9 @@ do
   esac
   shift
 done
-echo $CLUSTER_SIZE
+
+echo "Deploying locally with a cluster size of ${CLUSTER_SIZE}"
+
 . "${LOCAL_DIR}/.env"
 
 export ETCD_CLIENT_BASE_PORT=$ETCD_BASE_PORT
@@ -34,14 +39,19 @@ export ETCD_GRPC_END_PORT=$((ETCD_GRPC_BASE_PORT + CLUSTER_SIZE - 1))
 export HOST_IP=172.17.0.1
 
 if [ -z "${SKIP_DA_BUILD}" ]; then
+  echo "Building da..."
   . "${DEPLOY_DIR}/build-da.sh" --env-path "${LOCAL_DIR}/.env"
 else
   echo "Skipping DA build"
 fi
 
-if [ -z $SKIP_INSTALL ]; then
+if [ -n "${SKIP_ETCD_BUILD}" ]; then
+  echo "Skipping build of etcd image"
+elif [ -z $SKIP_INSTALL ]; then
+  echo "Building etcd..."
   . "${DEPLOY_DIR}/build-etcd.sh" --env-path "${LOCAL_DIR}/.env"
 else
+  echo "Building etcd..."
   . "${DEPLOY_DIR}/build-etcd.sh" --skip-install --env-path "${LOCAL_DIR}/.env"
 fi
 

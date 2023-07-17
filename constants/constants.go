@@ -1,8 +1,8 @@
 package constants
 
 import (
-	"github.com/FatProteins/master-thesis/network/protocol"
-	"github.com/FatProteins/master-thesis/util"
+	"github.com/FatProteins/master-thesis-code/network/protocol"
+	"github.com/FatProteins/master-thesis-code/util"
 	"google.golang.org/protobuf/proto"
 )
 
