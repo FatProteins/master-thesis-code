@@ -6,7 +6,7 @@ PROJECT_ROOT=$(pwd | sed 's/master-thesis-code\/deploy.*/master-thesis-code/g')
 DEPLOY_DIR="${PROJECT_ROOT}/deploy"
 LOCAL_DIR="${DEPLOY_DIR}/local"
 
-export CLUSTER_SIZE=1
+export CLUSTER_SIZE=2
 while [ "$#" -gt 0 ]
 do
   case "$1" in
