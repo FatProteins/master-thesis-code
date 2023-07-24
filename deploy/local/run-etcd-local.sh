@@ -6,6 +6,8 @@ PROJECT_ROOT=$(pwd | sed 's/master-thesis-code\/deploy.*/master-thesis-code/g')
 DEPLOY_DIR="${PROJECT_ROOT}/deploy"
 LOCAL_DIR="${DEPLOY_DIR}/local"
 
+. "${DEPLOY_DIR}/deploy-utils.sh"
+
 export CLUSTER_SIZE=2
 while [ "$#" -gt 0 ]
 do
@@ -75,5 +77,8 @@ for (( i=0; i<CLUSTER_SIZE; i++ )); do
   export ETCD_INSTANCE_NAME="etcd_instance_$i"
   export CONSENSUS_CONTAINER_NAME="${PROJECT_NAME}-etcd-1"
 
-  docker compose -p $PROJECT_NAME -f "${LOCAL_DIR}/docker-compose-local.yml" up -d etcd da
+  docker compose -p $PROJECT_NAME -f "${LOCAL_DIR}/docker-compose-local.yml" up -d da
+  wait_for_da "${PROJECT_NAME}-da-1"
+  docker compose -p $PROJECT_NAME -f "${LOCAL_DIR}/docker-compose-local.yml" up -d etcd
+
 done

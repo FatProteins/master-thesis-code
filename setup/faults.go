@@ -2,12 +2,14 @@ package setup
 
 import (
 	"errors"
+	"fmt"
 	"gonum.org/v1/gonum/floats"
 	"gonum.org/v1/gonum/stat/distuv"
 	"gopkg.in/yaml.v3"
 	"os"
 	"os/exec"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -74,25 +76,25 @@ func ReadFaultConfig(path string) (FaultConfig, error) {
 }
 
 func (config *FaultConfig) verifyConfig() error {
-	baseErr := errors.New("Config error")
+	baseErr := errors.New("config error")
 	if len(config.UnixDomainSocketPath) == 0 {
-		return errors.Join(baseErr, errors.New("Unix domain socket path is empty"))
+		return errors.Join(baseErr, errors.New("unix domain socket path is empty"))
 	}
 
 	if len(config.Actions.Pause.PauseCommand) == 0 {
-		return errors.Join(baseErr, errors.New("Pause command is empty"))
+		return errors.Join(baseErr, errors.New("pause command is empty"))
 	}
 
 	if len(config.Actions.Pause.ContinueCommand) == 0 {
-		return errors.Join(baseErr, errors.New("Unpause command is empty"))
+		return errors.Join(baseErr, errors.New("unpause command is empty"))
 	}
 
 	if len(config.Actions.Stop.StopCommand) == 0 {
-		return errors.Join(baseErr, errors.New("Stop command is empty"))
+		return errors.Join(baseErr, errors.New("stop command is empty"))
 	}
 
 	if len(config.Actions.Stop.RestartCommand) == 0 {
-		return errors.Join(baseErr, errors.New("Restart command is empty"))
+		return errors.Join(baseErr, errors.New("restart command is empty"))
 	}
 
 	return nil
@@ -123,11 +125,15 @@ func NewActionPicker(config FaultConfig) *ActionPicker {
 	cumSum := make([]float64, 5, 5)
 	floats.CumSum(cumSum, probabilities)
 
+	pauseCmd, pauseArgs := splitCommand(config.Actions.Pause.PauseCommand)
+	continueCmd, continueArgs := splitCommand(config.Actions.Pause.ContinueCommand)
+	stopCmd, stopArgs := splitCommand(config.Actions.Stop.StopCommand)
+	restartCmd, restartArgs := splitCommand(config.Actions.Stop.RestartCommand)
 	actions := map[int]FaultAction{
 		noopAction:              &NoopAction{},
 		haltAction:              &HaltAction{config},
-		pauseAction:             &PauseAction{config},
-		stopAction:              &StopAction{config},
+		pauseAction:             &PauseAction{config, pauseCmd, pauseArgs, continueCmd, continueArgs},
+		stopAction:              &StopAction{config, stopCmd, stopArgs, restartCmd, restartArgs},
 		resendLastMessageAction: &ResendLastMessageAction{},
 	}
 	return &ActionPicker{cumProbabilities: cumSum, actions: actions}
@@ -136,6 +142,7 @@ func NewActionPicker(config FaultConfig) *ActionPicker {
 func (actionPicker *ActionPicker) DetermineAction() FaultAction {
 	val := distuv.UnitUniform.Rand() * actionPicker.cumProbabilities[len(actionPicker.cumProbabilities)-1]
 	actionIdx := sort.Search(len(actionPicker.cumProbabilities), func(i int) bool { return actionPicker.cumProbabilities[i] > val })
+	fmt.Printf("Picking action '%d'\n", actionIdx)
 	return actionPicker.actions[actionIdx]
 }
 
@@ -157,36 +164,52 @@ func (action *HaltAction) Perform() {
 
 type PauseAction struct {
 	config FaultConfig
+
+	pauseCmd  string
+	pauseArgs []string
+
+	continueCmd  string
+	continueArgs []string
 }
 
 func (action *PauseAction) Perform() {
 	pauseConfig := action.config.Actions.Pause
-	err := exec.Command(pauseConfig.PauseCommand).Run()
+	err := exec.Command(action.pauseCmd, action.pauseArgs...).Run()
 	if err != nil {
+		fmt.Printf("Failed to execute pause command: %s", err.Error())
 		return
 	}
 
 	time.Sleep(time.Duration(pauseConfig.MaxDuration) * time.Millisecond)
-	err = exec.Command(pauseConfig.ContinueCommand).Run()
+	err = exec.Command(action.continueCmd, action.continueArgs...).Run()
 	if err != nil {
+		fmt.Printf("Failed to execute continue command: %s", err.Error())
 		return
 	}
 }
 
 type StopAction struct {
 	config FaultConfig
+
+	stopCmd  string
+	stopArgs []string
+
+	restartCmd  string
+	restartArgs []string
 }
 
 func (action *StopAction) Perform() {
 	stopConfig := &action.config.Actions.Stop
-	err := exec.Command(stopConfig.StopCommand).Run()
+	err := exec.Command(action.stopCmd, action.stopArgs...).Run()
 	if err != nil {
+		fmt.Printf("Failed to execute stop command: %s", err.Error())
 		return
 	}
 
 	time.Sleep(time.Duration(stopConfig.MaxDuration) * time.Millisecond)
-	err = exec.Command(stopConfig.RestartCommand).Run()
+	err = exec.Command(action.restartCmd, action.restartArgs...).Run()
 	if err != nil {
+		fmt.Printf("Failed to execute restart command: %s", err.Error())
 		return
 	}
 }
@@ -196,4 +219,17 @@ type ResendLastMessageAction struct {
 
 func (action *ResendLastMessageAction) Perform() {
 
+}
+
+func splitCommand(command string) (string, []string) {
+	cmdSplit := strings.Split(command, " ")
+	cmd := cmdSplit[0]
+	var args []string
+	if len(cmdSplit) > 1 {
+		args = cmdSplit[1:]
+	} else {
+		args = []string{}
+	}
+
+	return cmd, args
 }

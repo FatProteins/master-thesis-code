@@ -2,6 +2,7 @@ package process
 
 import (
 	"context"
+	"fmt"
 	"github.com/FatProteins/master-thesis-code/network"
 	"github.com/FatProteins/master-thesis-code/network/protocol"
 	"github.com/FatProteins/master-thesis-code/setup"
@@ -20,17 +21,20 @@ func NewProcessor(messageChan <-chan network.Message, actionPicker *setup.Action
 
 func (processor *Processor) RunAsync(ctx context.Context) {
 	go func() {
-		select {
-		case <-ctx.Done():
-			return
-		case message := <-processor.messageChan:
-			processor.handleMessage(message)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case message := <-processor.messageChan:
+				processor.handleMessage(message)
+			}
 		}
 	}()
 }
 
 func (processor *Processor) handleMessage(message network.Message) {
 	defer message.FreeMessage()
+	fmt.Println("Handling message")
 
 	var err error
 	switch message.MessageType {

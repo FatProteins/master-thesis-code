@@ -9,6 +9,8 @@ services:
     ports:
       - "${EXTERNAL_CLIENT_PORT}:${ETCD_CLIENT_CONTAINER_PORT}"
       - "${EXTERNAL_GRPC_PORT}:${ETCD_GRPC_CONTAINER_PORT}"
+    volumes:
+      - "${DA_VOLUME_PATH}:${DA_CONTAINER_VOLUME_PATH}"
     environment:
       - ETCD_NAME=${ETCD_INSTANCE_NAME}
       - ETCD_CLIENT_PORT=${ETCD_CLIENT_PORT}
@@ -36,3 +38,5 @@ services:
       - CONSENSUS_CONTAINER=${CONSENSUS_CONTAINER_NAME}
     env_file:
       - "./.env"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
