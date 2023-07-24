@@ -2,13 +2,15 @@ package process
 
 import (
 	"context"
-	"fmt"
+	daLogger "github.com/FatProteins/master-thesis-code/logger"
 	"github.com/FatProteins/master-thesis-code/network"
 	"github.com/FatProteins/master-thesis-code/network/protocol"
 	"github.com/FatProteins/master-thesis-code/setup"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 )
+
+var logger = daLogger.NewLogger("process")
 
 type Processor struct {
 	messageChan  <-chan network.Message
@@ -34,7 +36,7 @@ func (processor *Processor) RunAsync(ctx context.Context) {
 
 func (processor *Processor) handleMessage(message network.Message) {
 	defer message.FreeMessage()
-	fmt.Println("Handling message")
+	logger.Info("Handling message")
 
 	var err error
 	switch message.MessageType {

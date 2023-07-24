@@ -2,7 +2,7 @@ package setup
 
 import (
 	"errors"
-	"fmt"
+	daLogger "github.com/FatProteins/master-thesis-code/logger"
 	"gonum.org/v1/gonum/floats"
 	"gonum.org/v1/gonum/stat/distuv"
 	"gopkg.in/yaml.v3"
@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 )
+
+var logger = daLogger.NewLogger("setup")
 
 type FaultConfig struct {
 	UnixDomainSocketPath string `yaml:"unix-domain-socket-path"`
@@ -53,6 +55,7 @@ const (
 
 type FaultAction interface {
 	Perform()
+	Name() string
 }
 
 func ReadFaultConfig(path string) (FaultConfig, error) {
@@ -142,8 +145,9 @@ func NewActionPicker(config FaultConfig) *ActionPicker {
 func (actionPicker *ActionPicker) DetermineAction() FaultAction {
 	val := distuv.UnitUniform.Rand() * actionPicker.cumProbabilities[len(actionPicker.cumProbabilities)-1]
 	actionIdx := sort.Search(len(actionPicker.cumProbabilities), func(i int) bool { return actionPicker.cumProbabilities[i] > val })
-	fmt.Printf("Picking action '%d'\n", actionIdx)
-	return actionPicker.actions[actionIdx]
+	action := actionPicker.actions[actionIdx]
+	logger.Info("Picking action '%s'", action.Name())
+	return action
 }
 
 type NoopAction struct {
@@ -153,8 +157,16 @@ func (action *NoopAction) Perform() {
 	// Do nothing
 }
 
+func (action *NoopAction) Name() string {
+	return "Noop"
+}
+
 type HaltAction struct {
 	config FaultConfig
+}
+
+func (action *HaltAction) Name() string {
+	return "Halt"
 }
 
 func (action *HaltAction) Perform() {
@@ -172,18 +184,22 @@ type PauseAction struct {
 	continueArgs []string
 }
 
+func (action *PauseAction) Name() string {
+	return "Pause"
+}
+
 func (action *PauseAction) Perform() {
 	pauseConfig := action.config.Actions.Pause
 	err := exec.Command(action.pauseCmd, action.pauseArgs...).Run()
 	if err != nil {
-		fmt.Printf("Failed to execute pause command: %s", err.Error())
+		logger.ErrorErr(err, "Failed to execute pause command")
 		return
 	}
 
 	time.Sleep(time.Duration(pauseConfig.MaxDuration) * time.Millisecond)
 	err = exec.Command(action.continueCmd, action.continueArgs...).Run()
 	if err != nil {
-		fmt.Printf("Failed to execute continue command: %s", err.Error())
+		logger.ErrorErr(err, "Failed to execute continue command")
 		return
 	}
 }
@@ -198,23 +214,31 @@ type StopAction struct {
 	restartArgs []string
 }
 
+func (action *StopAction) Name() string {
+	return "Stop"
+}
+
 func (action *StopAction) Perform() {
 	stopConfig := &action.config.Actions.Stop
 	err := exec.Command(action.stopCmd, action.stopArgs...).Run()
 	if err != nil {
-		fmt.Printf("Failed to execute stop command: %s", err.Error())
+		logger.ErrorErr(err, "Failed to execute stop command")
 		return
 	}
 
 	time.Sleep(time.Duration(stopConfig.MaxDuration) * time.Millisecond)
 	err = exec.Command(action.restartCmd, action.restartArgs...).Run()
 	if err != nil {
-		fmt.Printf("Failed to execute restart command: %s", err.Error())
+		logger.ErrorErr(err, "Failed to execute restart command")
 		return
 	}
 }
 
 type ResendLastMessageAction struct {
+}
+
+func (action *ResendLastMessageAction) Name() string {
+	return "ResendLastMessage"
 }
 
 func (action *ResendLastMessageAction) Perform() {

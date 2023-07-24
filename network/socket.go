@@ -2,13 +2,14 @@ package network
 
 import (
 	"context"
-	"fmt"
+	daLogger "github.com/FatProteins/master-thesis-code/logger"
 	"github.com/FatProteins/master-thesis-code/network/protocol"
 	"github.com/FatProteins/master-thesis-code/util"
 	"google.golang.org/protobuf/proto"
 	"net"
-	"os"
 )
+
+var logger = daLogger.NewLogger("network")
 
 type NetworkLayer struct {
 	*net.UnixConn
@@ -31,7 +32,7 @@ func (networkLayer *NetworkLayer) RunAsync(ctx context.Context) {
 		for {
 			bytesRead, _, err := networkLayer.ReadFromUnix(messageBuffer)
 			if err != nil {
-				_, _ = fmt.Fprintf(os.Stderr, "Failed to read message from unix socket: '%s'\n", err.Error())
+				logger.ErrorErr(err, "Failed to read message from unix socket")
 				select {
 				case <-ctx.Done():
 					return
@@ -40,14 +41,14 @@ func (networkLayer *NetworkLayer) RunAsync(ctx context.Context) {
 				}
 			}
 
-			fmt.Printf("Read msg of length %d\n", bytesRead)
+			logger.Info("Read msg of length %d", bytesRead)
 
 			messageBuffer = messageBuffer[:bytesRead]
 			protoMsg := networkLayer.messagePool.Get()
 
 			err = proto.Unmarshal(messageBuffer, protoMsg)
 			if err != nil {
-				_, _ = fmt.Fprintf(os.Stderr, "Failed to unmarshal message: '%s'\n", err.Error())
+				logger.ErrorErr(err, "Failed to unmarshal message")
 				select {
 				case <-ctx.Done():
 					return
@@ -60,9 +61,10 @@ func (networkLayer *NetworkLayer) RunAsync(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case networkLayer.handleChan <- Message{protoMsg, func(message *protocol.Message) {
-				fmt.Println("Putting back msg to pool")
+				logger.Info("Putting back msg to pool")
+				message.Reset()
 				networkLayer.messagePool.Put(message)
-				fmt.Println("Done back msg to pool")
+				logger.Info("Done back msg to pool")
 			}}:
 			}
 		}

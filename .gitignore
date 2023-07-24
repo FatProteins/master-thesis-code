@@ -25,4 +25,4 @@ etcd-image.tar
 .idea
 
 bin/**
-volume/**
+volumes/**

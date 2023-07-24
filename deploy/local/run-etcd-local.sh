@@ -68,14 +68,13 @@ DISCOVERY_PORT=$((ETCD_GRPC_BASE_PORT + j))
 ETCD_INITIAL_CLUSTER="${ETCD_INITIAL_CLUSTER}etcd_instance_$j=http://${HOST_IP}:${DISCOVERY_PORT}"
 export ETCD_INITIAL_CLUSTER
 
-export DA_VOLUME_PATH="${PROJECT_ROOT}/volume/"
-
 for (( i=0; i<CLUSTER_SIZE; i++ )); do
   export PROJECT_NAME="consensus-$((i + 1))"
   export EXTERNAL_CLIENT_PORT=$((ETCD_CLIENT_BASE_PORT + i))
   export EXTERNAL_GRPC_PORT=$((ETCD_GRPC_BASE_PORT + i))
   export ETCD_INSTANCE_NAME="etcd_instance_$i"
   export CONSENSUS_CONTAINER_NAME="${PROJECT_NAME}-etcd-1"
+  export DA_VOLUME_PATH="${PROJECT_ROOT}/volumes/volume-$i"
 
   docker compose -p $PROJECT_NAME -f "${LOCAL_DIR}/docker-compose-local.yml" up -d da
   wait_for_da "${PROJECT_NAME}-da-1"

@@ -21,6 +21,7 @@ func (message *Message) FreeMessage() {
 }
 
 const (
+	HEARTBEAT             = "HEARTBEAT"
 	VOTE_REQUEST_RECEIVED = "VOTE_REQUEST_RECEIVED"
 	VOTE_RECEIVED         = "VOTE_RECEIVED"
 	LOG_ENTRY_REPLICATED  = "LOG_ENTRY_REPLICATED"
