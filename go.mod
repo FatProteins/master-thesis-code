@@ -3,6 +3,7 @@ module github.com/FatProteins/master-thesis-code
 go 1.20
 
 require (
+	github.com/gogo/protobuf v1.3.2
 	gonum.org/v1/gonum v0.13.0
 	google.golang.org/protobuf v1.30.0
 	gopkg.in/yaml.v3 v3.0.1

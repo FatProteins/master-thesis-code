@@ -14,10 +14,11 @@ var logger = daLogger.NewLogger("process")
 
 type Processor struct {
 	messageChan  <-chan network.Message
+	respChan     chan<- network.Message
 	actionPicker *setup.ActionPicker
 }
 
-func NewProcessor(messageChan <-chan network.Message, actionPicker *setup.ActionPicker) *Processor {
+func NewProcessor(messageChan <-chan network.Message, respChan chan<- network.Message, actionPicker *setup.ActionPicker) *Processor {
 	return &Processor{messageChan: messageChan, actionPicker: actionPicker}
 }
 
@@ -63,6 +64,16 @@ func (processor *Processor) handleMessage(message network.Message) {
 
 	}
 
+	logger.Info("Unread messages in queue: %d", len(processor.messageChan))
 	action := processor.actionPicker.DetermineAction()
-	go action.Perform()
+	action.Perform()
+	response := message.GetResponse()
+	err = action.GenerateResponse(response)
+	if err != nil {
+		logger.ErrorErr(err, "Failed to generate DA response. Sending default response instead.")
+		response.MessageType = "CONTINUE"
+	}
+
+	// TODO: Fix bidirectional msgs via unix socket (here we only listen, apparently can not send back over this)
+	message.Respond()
 }

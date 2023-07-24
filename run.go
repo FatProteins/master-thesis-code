@@ -26,14 +26,15 @@ func Run() {
 	}
 	logger.Info("Using fault config:\n%s", configString)
 
-	msgChan := make(chan network.Message, 10000)
 	localAddr, err := net.ResolveUnixAddr("unixgram", faultConfig.UnixDomainSocketPath)
 	if err != nil {
 		logger.ErrorErr(err, "Could not resolve unix address")
 		os.Exit(1)
 	}
 
-	networkLayer, err := network.NewNetworkLayer(localAddr, msgChan)
+	msgChan := make(chan network.Message, 10000)
+	respChan := make(chan network.Message, 10000)
+	networkLayer, err := network.NewNetworkLayer(localAddr, msgChan, respChan)
 	if err != nil {
 		logger.ErrorErr(err, "Could not create network layer")
 		os.Exit(1)
@@ -41,7 +42,7 @@ func Run() {
 	logger.Info("Listening to unix socket on '%s'", localAddr.String())
 
 	actionPicker := setup.NewActionPicker(faultConfig)
-	processor := process.NewProcessor(msgChan, actionPicker)
+	processor := process.NewProcessor(msgChan, respChan, actionPicker)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

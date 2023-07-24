@@ -10,6 +10,10 @@ message Message {
   optional CustomData customData = 3;
 }
 
+message DAResponse {
+  string responseType = 1;
+}
+
 message CustomData {
   string protocolName = 1;
   google.protobuf.Any data = 2;

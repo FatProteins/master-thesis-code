@@ -3,8 +3,10 @@ package setup
 import (
 	"errors"
 	daLogger "github.com/FatProteins/master-thesis-code/logger"
+	"github.com/FatProteins/master-thesis-code/network/protocol"
 	"gonum.org/v1/gonum/floats"
 	"gonum.org/v1/gonum/stat/distuv"
+	"google.golang.org/protobuf/types/known/anypb"
 	"gopkg.in/yaml.v3"
 	"os"
 	"os/exec"
@@ -56,6 +58,7 @@ const (
 type FaultAction interface {
 	Perform()
 	Name() string
+	GenerateResponse(*protocol.Message) error
 }
 
 func ReadFaultConfig(path string) (FaultConfig, error) {
@@ -153,6 +156,18 @@ func (actionPicker *ActionPicker) DetermineAction() FaultAction {
 type NoopAction struct {
 }
 
+func (action *NoopAction) GenerateResponse(response *protocol.Message) error {
+	response.Reset()
+	response.MessageType = "DA_RESPONSE"
+	response.MessageObject = &anypb.Any{}
+	err := response.MessageObject.MarshalFrom(response)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (action *NoopAction) Perform() {
 	// Do nothing
 }
@@ -163,6 +178,18 @@ func (action *NoopAction) Name() string {
 
 type HaltAction struct {
 	config FaultConfig
+}
+
+func (action *HaltAction) GenerateResponse(response *protocol.Message) error {
+	response.Reset()
+	response.MessageType = "DA_RESPONSE"
+	response.MessageObject = &anypb.Any{}
+	err := response.MessageObject.MarshalFrom(response)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (action *HaltAction) Name() string {
@@ -182,6 +209,18 @@ type PauseAction struct {
 
 	continueCmd  string
 	continueArgs []string
+}
+
+func (action *PauseAction) GenerateResponse(response *protocol.Message) error {
+	response.Reset()
+	response.MessageType = "DA_RESPONSE"
+	response.MessageObject = &anypb.Any{}
+	err := response.MessageObject.MarshalFrom(response)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (action *PauseAction) Name() string {
@@ -214,6 +253,18 @@ type StopAction struct {
 	restartArgs []string
 }
 
+func (action *StopAction) GenerateResponse(response *protocol.Message) error {
+	response.Reset()
+	response.MessageType = "DA_RESPONSE"
+	response.MessageObject = &anypb.Any{}
+	err := response.MessageObject.MarshalFrom(response)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (action *StopAction) Name() string {
 	return "Stop"
 }
@@ -235,6 +286,18 @@ func (action *StopAction) Perform() {
 }
 
 type ResendLastMessageAction struct {
+}
+
+func (action *ResendLastMessageAction) GenerateResponse(response *protocol.Message) error {
+	response.Reset()
+	response.MessageType = "DA_RESPONSE"
+	response.MessageObject = &anypb.Any{}
+	err := response.MessageObject.MarshalFrom(response)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (action *ResendLastMessageAction) Name() string {

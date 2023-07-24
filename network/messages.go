@@ -13,11 +13,22 @@ type MessageType int
 
 type Message struct {
 	*protocol.Message
-	closeFunc func(*protocol.Message)
+	response    *protocol.Message
+	closeFunc   func(*protocol.Message)
+	respondFunc func(*protocol.Message)
 }
 
 func (message *Message) FreeMessage() {
 	message.closeFunc(message.Message)
+	message.closeFunc(message.response)
+}
+
+func (message *Message) GetResponse() *protocol.Message {
+	return message.response
+}
+
+func (message *Message) Respond() {
+	message.respondFunc(message.response)
 }
 
 const (
