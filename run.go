@@ -26,7 +26,7 @@ func Run() {
 	}
 	logger.Info("Using fault config:\n%s", configString)
 
-	localAddr, err := net.ResolveUnixAddr("unixgram", faultConfig.UnixDomainSocketPath)
+	localAddr, err := net.ResolveUnixAddr("unixgram", faultConfig.UnixToDaDomainSocketPath)
 	if err != nil {
 		logger.ErrorErr(err, "Could not resolve unix address")
 		os.Exit(1)
@@ -34,7 +34,7 @@ func Run() {
 
 	msgChan := make(chan network.Message, 10000)
 	respChan := make(chan network.Message, 10000)
-	networkLayer, err := network.NewNetworkLayer(localAddr, msgChan, respChan)
+	networkLayer, err := network.NewNetworkLayer(msgChan, respChan)
 	if err != nil {
 		logger.ErrorErr(err, "Could not create network layer")
 		os.Exit(1)
@@ -48,7 +48,7 @@ func Run() {
 	defer cancel()
 
 	logger.Info("Starting application...")
-	networkLayer.RunAsync(ctx)
+	networkLayer.RunAsync(ctx, localAddr)
 	processor.RunAsync(ctx)
 
 	logger.Info("Ready.")

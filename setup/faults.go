@@ -18,9 +18,10 @@ import (
 var logger = daLogger.NewLogger("setup")
 
 type FaultConfig struct {
-	UnixDomainSocketPath string `yaml:"unix-domain-socket-path"`
-	FaultsEnabled        bool   `yaml:"faults-enabled"`
-	Actions              struct {
+	UnixToDaDomainSocketPath   string `yaml:"unix-to-da-domain-socket-path"`
+	UnixFromDaDomainSocketPath string `yaml:"unix-from-da-domain-socket-path"`
+	FaultsEnabled              bool   `yaml:"faults-enabled"`
+	Actions                    struct {
 		Noop struct {
 			Probability float64 `yaml:"probability"`
 		} `yaml:"noop"`
@@ -83,8 +84,12 @@ func ReadFaultConfig(path string) (FaultConfig, error) {
 
 func (config *FaultConfig) verifyConfig() error {
 	baseErr := errors.New("config error")
-	if len(config.UnixDomainSocketPath) == 0 {
-		return errors.Join(baseErr, errors.New("unix domain socket path is empty"))
+	if len(config.UnixToDaDomainSocketPath) == 0 {
+		return errors.Join(baseErr, errors.New("unix to DA domain socket path is empty"))
+	}
+
+	if len(config.UnixFromDaDomainSocketPath) == 0 {
+		return errors.Join(baseErr, errors.New("unix from DA domain socket path is empty"))
 	}
 
 	if len(config.Actions.Pause.PauseCommand) == 0 {
@@ -117,7 +122,7 @@ func (config *FaultConfig) String() (string, error) {
 
 type ActionPicker struct {
 	cumProbabilities []float64
-	actions          map[int]FaultAction
+	actions          map[protocol.ActionType]FaultAction
 }
 
 func NewActionPicker(config FaultConfig) *ActionPicker {
@@ -135,12 +140,12 @@ func NewActionPicker(config FaultConfig) *ActionPicker {
 	continueCmd, continueArgs := splitCommand(config.Actions.Pause.ContinueCommand)
 	stopCmd, stopArgs := splitCommand(config.Actions.Stop.StopCommand)
 	restartCmd, restartArgs := splitCommand(config.Actions.Stop.RestartCommand)
-	actions := map[int]FaultAction{
-		noopAction:              &NoopAction{},
-		haltAction:              &HaltAction{config},
-		pauseAction:             &PauseAction{config, pauseCmd, pauseArgs, continueCmd, continueArgs},
-		stopAction:              &StopAction{config, stopCmd, stopArgs, restartCmd, restartArgs},
-		resendLastMessageAction: &ResendLastMessageAction{},
+	actions := map[protocol.ActionType]FaultAction{
+		protocol.ActionType_NOOP_ACTION_TYPE:                &NoopAction{},
+		protocol.ActionType_HALT_ACTION_TYPE:                &HaltAction{config},
+		protocol.ActionType_PAUSE_ACTION_TYPE:               &PauseAction{config, pauseCmd, pauseArgs, continueCmd, continueArgs},
+		protocol.ActionType_STOP_ACTION_TYPE:                &StopAction{config, stopCmd, stopArgs, restartCmd, restartArgs},
+		protocol.ActionType_RESEND_LAST_MESSAGE_ACTION_TYPE: &ResendLastMessageAction{},
 	}
 	return &ActionPicker{cumProbabilities: cumSum, actions: actions}
 }
@@ -148,9 +153,13 @@ func NewActionPicker(config FaultConfig) *ActionPicker {
 func (actionPicker *ActionPicker) DetermineAction() FaultAction {
 	val := distuv.UnitUniform.Rand() * actionPicker.cumProbabilities[len(actionPicker.cumProbabilities)-1]
 	actionIdx := sort.Search(len(actionPicker.cumProbabilities), func(i int) bool { return actionPicker.cumProbabilities[i] > val })
-	action := actionPicker.actions[actionIdx]
-	logger.Info("Picking action '%s'", action.Name())
+	action := actionPicker.actions[protocol.ActionType(actionIdx)]
+	logger.Debug("Picking action '%s'", action.Name())
 	return action
+}
+
+func (actionPicker *ActionPicker) GetAction(actionType protocol.ActionType) FaultAction {
+	return actionPicker.actions[actionType]
 }
 
 type NoopAction struct {
@@ -158,7 +167,7 @@ type NoopAction struct {
 
 func (action *NoopAction) GenerateResponse(response *protocol.Message) error {
 	response.Reset()
-	response.MessageType = "DA_RESPONSE"
+	response.MessageType = protocol.MessageType_DA_RESPONSE
 	response.MessageObject = &anypb.Any{}
 	err := response.MessageObject.MarshalFrom(response)
 	if err != nil {
@@ -182,7 +191,7 @@ type HaltAction struct {
 
 func (action *HaltAction) GenerateResponse(response *protocol.Message) error {
 	response.Reset()
-	response.MessageType = "DA_RESPONSE"
+	response.MessageType = protocol.MessageType_DA_RESPONSE
 	response.MessageObject = &anypb.Any{}
 	err := response.MessageObject.MarshalFrom(response)
 	if err != nil {
@@ -213,7 +222,7 @@ type PauseAction struct {
 
 func (action *PauseAction) GenerateResponse(response *protocol.Message) error {
 	response.Reset()
-	response.MessageType = "DA_RESPONSE"
+	response.MessageType = protocol.MessageType_DA_RESPONSE
 	response.MessageObject = &anypb.Any{}
 	err := response.MessageObject.MarshalFrom(response)
 	if err != nil {
@@ -255,7 +264,7 @@ type StopAction struct {
 
 func (action *StopAction) GenerateResponse(response *protocol.Message) error {
 	response.Reset()
-	response.MessageType = "DA_RESPONSE"
+	response.MessageType = protocol.MessageType_DA_RESPONSE
 	response.MessageObject = &anypb.Any{}
 	err := response.MessageObject.MarshalFrom(response)
 	if err != nil {
@@ -290,7 +299,7 @@ type ResendLastMessageAction struct {
 
 func (action *ResendLastMessageAction) GenerateResponse(response *protocol.Message) error {
 	response.Reset()
-	response.MessageType = "DA_RESPONSE"
+	response.MessageType = protocol.MessageType_DA_RESPONSE
 	response.MessageObject = &anypb.Any{}
 	err := response.MessageObject.MarshalFrom(response)
 	if err != nil {

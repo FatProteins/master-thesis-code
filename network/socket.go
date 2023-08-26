@@ -18,17 +18,29 @@ type NetworkLayer struct {
 	respChan    <-chan Message
 }
 
-func NewNetworkLayer(localAddr *net.UnixAddr, handleChan chan<- Message, respChan <-chan Message) (*NetworkLayer, error) {
-	connection, err := net.ListenUnixgram("unixgram", localAddr)
-	if err != nil {
-		return nil, err
-	}
+func NewNetworkLayer(handleChan chan<- Message, respChan <-chan Message) (*NetworkLayer, error) {
 
-	return &NetworkLayer{UnixConn: connection, messagePool: util.NewPool[protocol.Message](), handleChan: handleChan, respChan: respChan}, nil
+	//connection, err := net.DialUnix("unixgram", nil, remoteAddr)
+	//if err != nil {
+	//	return nil, err
+	//}
+
+	return &NetworkLayer{messagePool: util.NewPool[protocol.Message](), handleChan: handleChan, respChan: respChan}, nil
 }
 
-func (networkLayer *NetworkLayer) RunAsync(ctx context.Context) {
+func (networkLayer *NetworkLayer) RunAsync(ctx context.Context, localAddr *net.UnixAddr) {
 	go func() {
+		listener, err := net.ListenUnix("unix", localAddr)
+		if err != nil {
+			panic("failed to listen to unix socket")
+		}
+
+		connection, err := listener.AcceptUnix()
+		if err != nil {
+			panic("failed to connect unix socket")
+		}
+		networkLayer.UnixConn = connection
+
 		messageBuffer := make([]byte, 4096*10)
 		for {
 			bytesRead, _, err := networkLayer.ReadFromUnix(messageBuffer)
@@ -42,7 +54,7 @@ func (networkLayer *NetworkLayer) RunAsync(ctx context.Context) {
 				}
 			}
 
-			logger.Info("Read msg of length %d", bytesRead)
+			logger.Debug("Read msg of length %d", bytesRead)
 
 			messageBuffer = messageBuffer[:bytesRead]
 			protoMsg := networkLayer.messagePool.Get()
@@ -65,13 +77,13 @@ func (networkLayer *NetworkLayer) RunAsync(ctx context.Context) {
 				Message:  protoMsg,
 				response: networkLayer.messagePool.Get(),
 				closeFunc: func(message *protocol.Message) {
-					logger.Info("Putting back msg to pool")
+					logger.Debug("Putting back msg to pool")
 					message.Reset()
 					networkLayer.messagePool.Put(message)
-					logger.Info("Done back msg to pool")
+					logger.Debug("Done back msg to pool")
 				},
 				respondFunc: func(response *protocol.Message) {
-					logger.Info("Responding with response '%s'", response.String())
+					logger.Debug("Responding with response '%s'", response.String())
 					respBytes, err := proto.Marshal(response)
 					if err != nil {
 						logger.ErrorErr(err, "Failed to marshal DA response to bytes")
@@ -84,7 +96,7 @@ func (networkLayer *NetworkLayer) RunAsync(ctx context.Context) {
 						return
 					}
 
-					logger.Info("Sent DA response with length %d", bytesWritten)
+					logger.Debug("Sent DA response with length %d", bytesWritten)
 				},
 			}:
 			}
@@ -111,7 +123,7 @@ func (networkLayer *NetworkLayer) RunAsync(ctx context.Context) {
 	//				continue
 	//			}
 	//
-	//			logger.Info("Sent DA response with length %d", bytesWritten)
+	//			logger.Debug("Sent DA response with length %d", bytesWritten)
 	//			response.FreeMessage()
 	//		}
 	//	}

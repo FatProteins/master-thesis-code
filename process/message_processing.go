@@ -37,26 +37,26 @@ func (processor *Processor) RunAsync(ctx context.Context) {
 
 func (processor *Processor) handleMessage(message network.Message) {
 	defer message.FreeMessage()
-	logger.Info("Handling message")
+	logger.Debug("Handling message")
 
 	var err error
 	switch message.MessageType {
-	case network.VOTE_REQUEST_RECEIVED:
+	case protocol.MessageType_VOTE_REQUEST_RECEIVED:
 		m := protocol.VoteRequestReceived{}
 		err = anypb.UnmarshalTo(message.MessageObject, &m, proto.UnmarshalOptions{})
-	case network.VOTE_RECEIVED:
+	case protocol.MessageType_VOTE_RECEIVED:
 		m := protocol.VoteReceived{}
 		err = anypb.UnmarshalTo(message.MessageObject, &m, proto.UnmarshalOptions{})
-	case network.LOG_ENTRY_REPLICATED:
+	case protocol.MessageType_LOG_ENTRY_REPLICATED:
 		m := protocol.LogEntryReplicated{}
 		err = anypb.UnmarshalTo(message.MessageObject, &m, proto.UnmarshalOptions{})
-	case network.LOG_ENTRY_COMMITTED:
+	case protocol.MessageType_LOG_ENTRY_COMMITTED:
 		m := protocol.LogEntryCommitted{}
 		err = anypb.UnmarshalTo(message.MessageObject, &m, proto.UnmarshalOptions{})
-	case network.LEADER_SUSPECTED:
+	case protocol.MessageType_LEADER_SUSPECTED:
 		m := protocol.LeaderSuspected{}
 		err = anypb.UnmarshalTo(message.MessageObject, &m, proto.UnmarshalOptions{})
-	case network.FOLLOWER_SUSPECTED:
+	case protocol.MessageType_FOLLOWER_SUSPECTED:
 		m := protocol.FollowerSuspected{}
 		err = anypb.UnmarshalTo(message.MessageObject, &m, proto.UnmarshalOptions{})
 	}
@@ -64,16 +64,16 @@ func (processor *Processor) handleMessage(message network.Message) {
 
 	}
 
-	logger.Info("Unread messages in queue: %d", len(processor.messageChan))
-	action := processor.actionPicker.DetermineAction()
+	logger.Debug("Unread messages in queue: %d", len(processor.messageChan))
+	//action := processor.actionPicker.DetermineAction()
+	action := processor.actionPicker.GetAction(message.ActionType)
 	action.Perform()
 	response := message.GetResponse()
 	err = action.GenerateResponse(response)
 	if err != nil {
 		logger.ErrorErr(err, "Failed to generate DA response. Sending default response instead.")
-		response.MessageType = "CONTINUE"
+		response.MessageType = protocol.MessageType_DA_RESPONSE
 	}
 
-	// TODO: Fix bidirectional msgs via unix socket (here we only listen, apparently can not send back over this)
 	message.Respond()
 }

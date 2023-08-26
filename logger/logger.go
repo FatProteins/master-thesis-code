@@ -11,6 +11,15 @@ type Logger struct {
 	stderr *log.Logger
 }
 
+func (logger *Logger) Debug(format string, args ...any) {
+	return
+	if len(args) == 0 {
+		logger.stdout.Println(format)
+	} else {
+		logger.stdout.Printf(format+"\n", args)
+	}
+}
+
 func (logger *Logger) Info(format string, args ...any) {
 	if len(args) == 0 {
 		logger.stdout.Println(format)
