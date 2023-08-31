@@ -22,6 +22,7 @@ services:
       - ETCD_INITIAL_ADVERTISE_PEER_URLS=http://${HOST_IP}:${EXTERNAL_GRPC_PORT}
       - ETCD_INITIAL_CLUSTER_TOKEN=${ETCD_CLUSTER_TOKEN}
       - ETCD_INITIAL_CLUSTER_STATE=${ETCD_CLUSTER_STATE}
+      - INSTANCE_NUMBER=${INSTANCE_NUMBER}
     env_file:
       - "./.env"
     extra_hosts:
@@ -36,6 +37,7 @@ services:
       - "/var/run/docker.sock:/var/run/docker.sock"
     environment:
       - CONSENSUS_CONTAINER=${CONSENSUS_CONTAINER_NAME}
+      - INSTANCE_NUMBER=${INSTANCE_NUMBER}
     env_file:
       - "./.env"
     extra_hosts:

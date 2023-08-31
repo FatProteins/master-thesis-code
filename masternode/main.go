@@ -5,18 +5,20 @@ import (
 	"encoding/base64"
 	"fmt"
 	daLogger "github.com/FatProteins/master-thesis-code/logger"
+	"github.com/spf13/pflag"
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"io"
 	"math/rand"
 	"os"
 	"os/signal"
+	"regexp"
 	"strconv"
 	"time"
 )
 
 var logger = daLogger.NewLogger("main")
 
-const numClients = 1
+const numClientsDefault = 10
 
 type kvPair struct {
 	key            string
@@ -27,24 +29,54 @@ type kvPair struct {
 }
 
 func main() {
+	endpointsPtr := pflag.StringSliceP("endpoints", "e", nil, "Endpoints of etcd nodes in format 'host:port'")
+	numClientsPtr := pflag.IntP("num-clients", "c", numClientsDefault, "Number of clients to use concurrently")
+	pflag.Parse()
+
+	endpoints := *endpointsPtr
+	if len(endpoints) == 0 {
+		logger.Error("--endpoints is required and must not be empty")
+		os.Exit(1)
+	}
+
+	numClients := *numClientsPtr
+
+	for _, endpoint := range endpoints {
+		matched, err := regexp.MatchString(".+:[0-9]+", endpoint)
+		if err != nil {
+			panic(err)
+		}
+
+		if !matched {
+			logger.Error("Endpoint must have format 'host:port', but got '%s'", endpoint)
+			os.Exit(1)
+		}
+
+		logger.Info("Endpoint: %s", endpoint)
+	}
+
 	generateRandomPayload64BaseEncoded()
 	value := string(buffer)
 
-	ctx, cancel := context.WithCancel(context.Background())
 	asyncDone := make(chan struct{}, numClients)
 
 	storageChan := make(chan kvPair, 65536)
-	runStorage(storageChan)
+	storageDoneChan := make(chan struct{})
+	runStorage(storageChan, storageDoneChan)
+
+	mainCtx, mainCancel := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer mainCancel()
+
+	ctx, cancel := context.WithCancel(mainCtx)
+	client, err := createEtcdClient(ctx, endpoints)
+	if err != nil {
+		panic("failed to create etcd client")
+	}
+
+	defer client.Close()
 
 	for i := 0; i < numClients; i++ {
 		go func() {
-			client, err := createEtcdClient(ctx)
-			if err != nil {
-				panic("failed to create etcd client")
-			}
-
-			defer client.Close()
-
 			messagesCount := 0
 			errorsCount := 0
 			done := ctx.Done()
@@ -82,24 +114,19 @@ func main() {
 		}()
 	}
 
-	interrupt := make(chan os.Signal, 1)
-	signal.Notify(interrupt, os.Interrupt)
-	_ = <-interrupt
-	cancel()
+	time.AfterFunc(70*time.Second, cancel)
 
 	for i := 0; i < numClients; i++ {
 		_ = <-asyncDone
 	}
 
-	ctx, cancel = context.WithCancel(context.Background())
-	client, err := createEtcdClient(ctx)
-	if err != nil {
-		panic("failed to create etcd client")
-	}
+	logger.Info("Async all done")
 
-	defer client.Close()
+	close(storageChan)
+	<-storageDoneChan
+	logger.Info("Storage done")
 
-	rd, err := client.Snapshot(context.Background())
+	rd, err := client.Snapshot(mainCtx)
 	if err != nil {
 		panic(err)
 	}
@@ -136,7 +163,7 @@ func doNextOp(ctx context.Context, client *clientv3.Client, key string, value st
 	return err
 }
 
-const payloadLength = 4096
+const payloadLength = 8
 
 var seed int64 = 111
 var random = rand.New(rand.NewSource(seed))
@@ -149,12 +176,12 @@ func generateRandomPayload64BaseEncoded() []byte {
 	return buffer
 }
 
-func createEtcdClient(ctx context.Context) (*clientv3.Client, error) {
-	endpoints := make([]string, numClients)
-	for i := 0; i < numClients; i++ {
-		clientPort := 2379 + i
-		endpoints[i] = "localhost:" + strconv.Itoa(clientPort)
-	}
+func createEtcdClient(ctx context.Context, endpoints []string) (*clientv3.Client, error) {
+	//endpoints := make([]string, numNodes)
+	//for i := 0; i < numNodes; i++ {
+	//	clientPort := 2379 + i
+	//	endpoints[i] = "localhost:" + strconv.Itoa(clientPort)
+	//}
 	client, err := clientv3.New(clientv3.Config{
 		Endpoints:   endpoints,
 		DialTimeout: 5 * time.Second,
@@ -168,10 +195,10 @@ func createEtcdClient(ctx context.Context) (*clientv3.Client, error) {
 	return client, nil
 }
 
-func runStorage(kv <-chan kvPair) {
+func runStorage(kv <-chan kvPair, doneChan chan<- struct{}) {
 	go func() {
 		now := time.Now()
-		filename := fmt.Sprintf("kv_pairs_%s.csv", now.Format("2006-01-02T15-04-05"))
+		filename := fmt.Sprintf("%d-kv_pairs_%s.csv", numClientsDefault, now.Format("2006-01-02T15-04-05"))
 		file, err := os.OpenFile(filename, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0644)
 		if err != nil {
 			panic(err)
@@ -179,7 +206,7 @@ func runStorage(kv <-chan kvPair) {
 
 		defer file.Close()
 
-		_, err = file.WriteString("key,value,success,timestampEnd\n")
+		_, err = file.WriteString("key,value,success,timestampStart,timestampEnd\n")
 		if err != nil {
 			panic(err)
 		}
@@ -188,6 +215,7 @@ func runStorage(kv <-chan kvPair) {
 			select {
 			case pair, ok := <-kv:
 				if !ok {
+					close(doneChan)
 					return
 				}
 

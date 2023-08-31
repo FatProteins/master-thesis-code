@@ -6,6 +6,9 @@ PROJECT_ROOT=$(pwd | sed 's/master-thesis-code\/deploy.*/master-thesis-code/g')
 DEPLOY_DIR="${PROJECT_ROOT}/deploy"
 CLUSTER_DIR="${DEPLOY_DIR}/cluster"
 TEMP_DEPLOYMENT_DIR="${CLUSTER_DIR}/temp"
+REMOTE_DEPLOYMENT_DIR="/home/drotarmel/thesis-deployment"
+
+. "${DEPLOY_DIR}/deploy-utils.sh"
 
 mkdir -p "${TEMP_DEPLOYMENT_DIR}"
 
@@ -16,17 +19,28 @@ do
   "--skip-install")
     SKIP_INSTALL=1
     ;;
-  "--skip-build")
-    SKIP_BUILD=1
+  "--skip-etcd-build")
+    SKIP_ETCD_BUILD=1
+    ;;
+  "--skip-da-build")
+    SKIP_DA_BUILD=1
     ;;
   esac
   shift
 done
-echo $CLUSTER_SIZE
+
+echo "Deploying on cluster with a cluster size of ${CLUSTER_SIZE}"
+
 . "${CLUSTER_DIR}/.env"
 
+if [ -z "${SKIP_DA_BUILD}" ]; then
+  echo "Building da..."
+  . "${DEPLOY_DIR}/build-da.sh" --env-path "${CLUSTER_DIR}/.env"
+else
+  echo "Skipping DA build"
+fi
 
-if [ -n "${SKIP_BUILD}" ]; then
+if [ -n "${SKIP_ETCD_BUILD}" ]; then
   echo "Skipping build of etcd image"
 elif [ -z $SKIP_INSTALL ]; then
   . "${DEPLOY_DIR}/build-etcd.sh" --env-path "${CLUSTER_DIR}/.env"
@@ -46,6 +60,7 @@ for (( i=0; i<CLUSTER_SIZE; i++ )); do
   cp "${CLUSTER_DIR}/.env" "${TEMP_DEPLOYMENT_DIR}/.env-cluster"
   CLUSTER_HOST_IP=$(yq -r ".deployment.machines[$i].host" "${CLUSTER_DIR}/deployment-cluster.yml")
   CLUSTER_USER=$(yq -r ".deployment.machines[$i].user" "${CLUSTER_DIR}/deployment-cluster.yml")
+  INSTANCE_NUMBER="$(( i + 1 ))"
 
   {
     echo ""
@@ -56,14 +71,14 @@ for (( i=0; i<CLUSTER_SIZE; i++ )); do
     echo "ETCD_INSTANCE_NAME=etcd_instance_$i"
     echo "ETCD_INITIAL_CLUSTER=${ETCD_INITIAL_CLUSTER}"
     echo "HOST_IP=${CLUSTER_HOST_IP}"
+    echo "REMOTE_DEPLOYMENT_DIR=${REMOTE_DEPLOYMENT_DIR}"
+    echo "DA_VOLUME_PATH=${REMOTE_DEPLOYMENT_DIR}/volume/"
+    echo "INSTANCE_NUMBER=${INSTANCE_NUMBER}"
+    echo "CONSENSUS_CONTAINER_NAME=${PROJECT_NAME}-etcd-1"
   } >> "${TEMP_DEPLOYMENT_DIR}/.env-cluster"
-#  echo "ETCD_PROJECT_NAME=etcd-$((i + 1))" >> "${CLUSTER_DIR}/.env-cluster"
-#  echo "EXTERNAL_CLIENT_PORT=$((ETCD_CLIENT_BASE_PORT + i))" >> "${CLUSTER_DIR}/.env-cluster"
-#  echo "EXTERNAL_GRPC_PORT=$((ETCD_GRPC_BASE_PORT + i))" >> "${CLUSTER_DIR}/.env-cluster"
-#  echo "ETCD_INSTANCE_NAME=etcd_instance_$i" >> "${CLUSTER_DIR}/.env-cluster"
 
   echo "Copying files to ${CLUSTER_HOST_IP}"
-  if [ -z "${SKIP_BUILD}" ]; then
+  if [ -z "${SKIP_ETCD_BUILD}" ]; then
     . "${CLUSTER_DIR}/copy-files-cluster.sh" --target-host "${CLUSTER_HOST_IP}" --target-user "${CLUSTER_USER}"
   else
     . "${CLUSTER_DIR}/copy-files-cluster.sh" --target-host "${CLUSTER_HOST_IP}" --target-user "${CLUSTER_USER}" --skip-image-upload
@@ -75,7 +90,7 @@ for (( i=0; i<CLUSTER_SIZE; i++ )); do
   CLUSTER_HOST_IP=$(yq -r ".deployment.machines[$i].host" "${CLUSTER_DIR}/deployment-cluster.yml")
   CLUSTER_USER=$(yq -r ".deployment.machines[$i].user" "${CLUSTER_DIR}/deployment-cluster.yml")
   echo "Starting etcd instance on ${CLUSTER_HOST_IP}"
-  ssh "${CLUSTER_USER}@${CLUSTER_HOST_IP}" "bash -s" -- < "${CLUSTER_DIR}/start-cluster.sh"
+  ssh "${CLUSTER_USER}@${CLUSTER_HOST_IP}" "REMOTE_DEPLOYMENT_DIR=${REMOTE_DEPLOYMENT_DIR} bash -s" -- < "${CLUSTER_DIR}/start-cluster.sh"
 done
 
 rm -r "${TEMP_DEPLOYMENT_DIR}"

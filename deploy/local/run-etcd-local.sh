@@ -75,6 +75,7 @@ for (( i=0; i<CLUSTER_SIZE; i++ )); do
   export ETCD_INSTANCE_NAME="etcd_instance_$i"
   export CONSENSUS_CONTAINER_NAME="${PROJECT_NAME}-etcd-1"
   export DA_VOLUME_PATH="${PROJECT_ROOT}/volumes/volume-$i"
+  export INSTANCE_NUMBER="$i"
 
   docker compose -p $PROJECT_NAME -f "${LOCAL_DIR}/docker-compose-local.yml" up -d da
   wait_for_da "${PROJECT_NAME}-da-1"

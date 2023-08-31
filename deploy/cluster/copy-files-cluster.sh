@@ -37,14 +37,16 @@ if [ -z "${TARGET_USER}" ]; then
   exit 1
 fi
 
-ssh "${TARGET_USER}@${TARGET_HOST}" "mkdir -p etcd-deployment"
-scp "${TEMP_DEPLOYMENT_DIR}/.env-cluster" "${CLUSTER_DIR}/docker-compose-cluster.yml" "${TARGET_USER}@${TARGET_HOST}:~/etcd-deployment/"
+ssh "${TARGET_USER}@${TARGET_HOST}" "mkdir -p ${REMOTE_DEPLOYMENT_DIR}"
+scp "${DEPLOY_DIR}/deploy-utils.sh" "${TEMP_DEPLOYMENT_DIR}/.env-cluster" "${CLUSTER_DIR}/docker-compose-cluster.yml" "${TARGET_USER}@${TARGET_HOST}:${REMOTE_DEPLOYMENT_DIR}"
 
 if [ -z "${SKIP_IMAGE_UPLOAD}" ]; then
   docker save -o "${TEMP_DEPLOYMENT_DIR}/etcd-image.tar" "${ETCD_IMAGE_NAME}:${ETCD_IMAGE_VERSION}"
-  scp "${TEMP_DEPLOYMENT_DIR}/etcd-image.tar" "${TARGET_USER}@${TARGET_HOST}:~/etcd-deployment/"
+  docker save -o "${TEMP_DEPLOYMENT_DIR}/da-image.tar" "${DA_IMAGE_NAME}:${DA_IMAGE_VERSION}"
+  scp "${TEMP_DEPLOYMENT_DIR}/etcd-image.tar" "${TEMP_DEPLOYMENT_DIR}/da-image.tar" "${TARGET_USER}@${TARGET_HOST}:${REMOTE_DEPLOYMENT_DIR}"
+
+  ssh "${TARGET_USER}@${TARGET_HOST}" "docker load -i ${REMOTE_DEPLOYMENT_DIR}/etcd-image.tar"
+  ssh "${TARGET_USER}@${TARGET_HOST}" "docker load -i ${REMOTE_DEPLOYMENT_DIR}/da-image.tar"
 else
   echo "Skipping upload of etcd image"
 fi
-
-ssh "${TARGET_USER}@${TARGET_HOST}" "docker load -i ~/etcd-deployment/etcd-image.tar"
