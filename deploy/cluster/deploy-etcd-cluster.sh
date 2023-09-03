@@ -6,7 +6,6 @@ PROJECT_ROOT=$(pwd | sed 's/master-thesis-code\/deploy.*/master-thesis-code/g')
 DEPLOY_DIR="${PROJECT_ROOT}/deploy"
 CLUSTER_DIR="${DEPLOY_DIR}/cluster"
 TEMP_DEPLOYMENT_DIR="${CLUSTER_DIR}/temp"
-REMOTE_DEPLOYMENT_DIR="/home/drotarmel/thesis-deployment"
 
 . "${DEPLOY_DIR}/deploy-utils.sh"
 
@@ -24,6 +23,9 @@ do
     ;;
   "--skip-da-build")
     SKIP_DA_BUILD=1
+    ;;
+  "--disable-interrupt")
+    DISABLE_INTERRUPT=1
     ;;
   esac
   shift
@@ -56,11 +58,13 @@ done
 ETCD_INITIAL_CLUSTER=${ETCD_INITIAL_CLUSTER%,}
 echo "ETCD_INITIAL_CLUSTER=${ETCD_INITIAL_CLUSTER}"
 
-for (( i=0; i<CLUSTER_SIZE; i++ )); do
+function upload_files() {
+  INSTANCE_NUMBER="$1"
+  FROM_USER="$2"
+  FROM_HOST="$3"
   cp "${CLUSTER_DIR}/.env" "${TEMP_DEPLOYMENT_DIR}/.env-cluster"
-  CLUSTER_HOST_IP=$(yq -r ".deployment.machines[$i].host" "${CLUSTER_DIR}/deployment-cluster.yml")
-  CLUSTER_USER=$(yq -r ".deployment.machines[$i].user" "${CLUSTER_DIR}/deployment-cluster.yml")
-  INSTANCE_NUMBER="$(( i + 1 ))"
+  CLUSTER_USER=$(yq -r ".deployment.machines[$INSTANCE_NUMBER].user" "${CLUSTER_DIR}/deployment-cluster.yml")
+  CLUSTER_HOST_IP=$(yq -r ".deployment.machines[$INSTANCE_NUMBER].host" "${CLUSTER_DIR}/deployment-cluster.yml")
 
   {
     echo ""
@@ -68,22 +72,31 @@ for (( i=0; i<CLUSTER_SIZE; i++ )); do
     echo "ETCD_IMAGE_VERSION=${ETCD_IMAGE_VERSION}"
     echo "EXTERNAL_CLIENT_PORT=${ETCD_CLIENT_PORT}"
     echo "EXTERNAL_GRPC_PORT=${ETCD_GRPC_PORT}"
-    echo "ETCD_INSTANCE_NAME=etcd_instance_$i"
+    echo "ETCD_INSTANCE_NAME=etcd_instance_$INSTANCE_NUMBER"
     echo "ETCD_INITIAL_CLUSTER=${ETCD_INITIAL_CLUSTER}"
     echo "HOST_IP=${CLUSTER_HOST_IP}"
     echo "REMOTE_DEPLOYMENT_DIR=${REMOTE_DEPLOYMENT_DIR}"
     echo "DA_VOLUME_PATH=${REMOTE_DEPLOYMENT_DIR}/volume/"
     echo "INSTANCE_NUMBER=${INSTANCE_NUMBER}"
     echo "CONSENSUS_CONTAINER_NAME=${PROJECT_NAME}-etcd-1"
+    echo "DA_DISABLE_INTERRUPT=${DISABLE_INTERRUPT}"
   } >> "${TEMP_DEPLOYMENT_DIR}/.env-cluster"
 
   echo "Copying files to ${CLUSTER_HOST_IP}"
   if [ -z "${SKIP_ETCD_BUILD}" ]; then
-    . "${CLUSTER_DIR}/copy-files-cluster.sh" --target-host "${CLUSTER_HOST_IP}" --target-user "${CLUSTER_USER}"
+    . "${CLUSTER_DIR}/copy-files-cluster.sh" --target-host "${CLUSTER_HOST_IP}" --target-user "${CLUSTER_USER}" --from-host "${FROM_HOST}" --from-user "${FROM_USER}"
   else
-    . "${CLUSTER_DIR}/copy-files-cluster.sh" --target-host "${CLUSTER_HOST_IP}" --target-user "${CLUSTER_USER}" --skip-image-upload
+    . "${CLUSTER_DIR}/copy-files-cluster.sh" --target-host "${CLUSTER_HOST_IP}" --target-user "${CLUSTER_USER}" --skip-image-upload --from-host "${FROM_HOST}" --from-user "${FROM_USER}"
   fi
   rm "${TEMP_DEPLOYMENT_DIR}/.env-cluster"
+}
+
+FIRST_CLUSTER_USER=$(yq -r ".deployment.machines[0].user" "${CLUSTER_DIR}/deployment-cluster.yml")
+FIRST_CLUSTER_HOST_IP=$(yq -r ".deployment.machines[0].host" "${CLUSTER_DIR}/deployment-cluster.yml")
+#upload_files "0"
+
+for (( i=1; i<CLUSTER_SIZE; i++ )); do
+  upload_files "$i" "${FIRST_CLUSTER_USER}" "${FIRST_CLUSTER_HOST_IP}"
 done
 
 for (( i=0; i<CLUSTER_SIZE; i++ )); do
