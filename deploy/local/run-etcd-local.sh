@@ -25,6 +25,9 @@ do
     shift
     CLUSTER_SIZE=$1
     ;;
+  "--disable-interrupt")
+    DISABLE_INTERRUPT=1
+    ;;
   esac
   shift
 done
@@ -76,6 +79,7 @@ for (( i=0; i<CLUSTER_SIZE; i++ )); do
   export CONSENSUS_CONTAINER_NAME="${PROJECT_NAME}-etcd-1"
   export DA_VOLUME_PATH="${PROJECT_ROOT}/volumes/volume-$i"
   export INSTANCE_NUMBER="$i"
+  export DA_DISABLE_INTERRUPT="${DISABLE_INTERRUPT}"
 
   docker compose -p $PROJECT_NAME -f "${LOCAL_DIR}/docker-compose-local.yml" up -d da
   wait_for_da "${PROJECT_NAME}-da-1"

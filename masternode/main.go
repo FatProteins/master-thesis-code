@@ -84,6 +84,11 @@ func main() {
 			for {
 				logger.Debug("Sending put %d", messagesCount)
 				key := strconv.Itoa(messagesCount)
+
+				if (messagesCount+1)%1000 == 0 {
+					logger.Info("Sending message %d with key %s and value %s", messagesCount+1, key, value)
+				}
+
 				timestampStart := time.Now().UnixNano()
 				err := doNextOp(ctx, client, key, value)
 				timestampEnd := time.Now().UnixNano()

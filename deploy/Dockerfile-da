@@ -1,5 +1,5 @@
 ARG ARCH=amd64
-FROM --platform=linux/${ARCH} ubuntu:22.10
+FROM --platform=linux/${ARCH} ubuntu:22.04
 
 ADD config /thesis/config
 ADD bin/da /thesis/da
