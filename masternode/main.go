@@ -6,8 +6,8 @@ import (
 	"fmt"
 	daLogger "github.com/FatProteins/master-thesis-code/logger"
 	"github.com/spf13/pflag"
+	"go.etcd.io/etcd/api/v3/etcdserverpb"
 	clientv3 "go.etcd.io/etcd/client/v3"
-	"io"
 	"math/rand"
 	"os"
 	"os/signal"
@@ -75,7 +75,14 @@ func main() {
 
 	defer client.Close()
 
+	//_, err = client.Put(ctx, "testing5", "test_value")
+	//if err != nil {
+	//	panic(err)
+	//}
+	//logger.Info("Success on putting test_key!")
+	//time.Sleep(60 * time.Second)
 	for i := 0; i < numClients; i++ {
+		//break
 		go func() {
 			messagesCount := 0
 			errorsCount := 0
@@ -85,16 +92,29 @@ func main() {
 				logger.Debug("Sending put %d", messagesCount)
 				key := strconv.Itoa(messagesCount)
 
-				if (messagesCount+1)%1000 == 0 {
+				generateRandomPayload64BaseEncoded()
+				value = string(buffer)
+				value = key
+
+				if key == "10000" {
 					logger.Info("Sending message %d with key %s and value %s", messagesCount+1, key, value)
 				}
 
+				if messagesCount == 11000 {
+					break loop
+				}
+
 				timestampStart := time.Now().UnixNano()
-				err := doNextOp(ctx, client, key, value)
+
+				reqCtx, reqCancel := context.WithTimeout(ctx, 5*time.Second)
+				err := doNextOp(reqCtx, client, key, value)
+				reqCancel()
+
 				timestampEnd := time.Now().UnixNano()
 				success := err == nil
 				if !success {
 					errorsCount++
+					//break loop
 				}
 
 				storageChan <- kvPair{
@@ -119,9 +139,10 @@ func main() {
 		}()
 	}
 
-	time.AfterFunc(70*time.Second, cancel)
+	time.AfterFunc(600*time.Second, cancel)
 
 	for i := 0; i < numClients; i++ {
+		//break
 		_ = <-asyncDone
 	}
 
@@ -137,13 +158,35 @@ func main() {
 	}
 	defer rd.Close()
 
-	//resp, err := client.Get(context.Background(), "", clientv3.WithPrefix())
-	//if err != nil {
-	//	panic(err)
-	//}
+	//for _, endpoint := range endpoints {
+	//	clientCtx, clientCancel := context.WithTimeout(ctx, 10*time.Second)
+	//	getClient, err := createEtcdClient(clientCtx, []string{endpoint})
+	//	if err != nil {
+	//		logger.ErrorErr(err, "Failed to create client for GET KVs for endpoint %s", endpoint)
+	//		clientCancel()
+	//		continue
+	//	}
 	//
-	//for _, kv := range resp.Kvs {
-	//	fmt.Println(string(kv.Key) + " " + string(kv.Value) + "\n")
+	//	resp, err := getClient.Get(clientCtx, "", clientv3.WithPrefix())
+	//	if err != nil {
+	//		panic(err)
+	//	}
+	//
+	//	clientCancel()
+	//
+	//	now := time.Now()
+	//	nowStr := now.Format("2006-01-02T15-04-05")
+	//	f, err := os.OpenFile(fmt.Sprintf("snapshot_%s_%s", nowStr, endpoint), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
+	//	if err != nil {
+	//		panic(err)
+	//	}
+	//
+	//	f.WriteString("key,value\n")
+	//	for _, kv := range resp.Kvs {
+	//		f.WriteString(string(kv.Key) + "," + string(kv.Value) + "\n")
+	//	}
+	//
+	//	f.Close()
 	//}
 
 	now := time.Now()
@@ -155,16 +198,24 @@ func main() {
 	defer f.Close()
 
 	//size, err := io.Copy(os.Stdout, rd)
-	size, err := io.Copy(f, rd)
-	if err != nil {
-		panic(err)
-	}
+	//size, err := io.Copy(f, rd)
+	//if err != nil {
+	//	panic(err)
+	//}
 
-	logger.Info("Wrote snapshot of %d bytes.", size)
+	//logger.Info("Wrote snapshot of %d bytes.", size)
 }
 
 func doNextOp(ctx context.Context, client *clientv3.Client, key string, value string) error {
-	_, err := client.Put(ctx, key, value)
+	resp, err := client.Put(ctx, key, value)
+	if err != nil {
+		if resp != nil {
+			response := (etcdserverpb.PutResponse)(*resp)
+			logger.ErrorErr(err, "Failed put request: %s", (&response).String())
+		} else {
+			logger.ErrorErr(err, "Failed put request with no response")
+		}
+	}
 	return err
 }
 

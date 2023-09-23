@@ -81,8 +81,15 @@ for (( i=0; i<CLUSTER_SIZE; i++ )); do
   export INSTANCE_NUMBER="$i"
   export DA_DISABLE_INTERRUPT="${DISABLE_INTERRUPT}"
 
-  docker compose -p $PROJECT_NAME -f "${LOCAL_DIR}/docker-compose-local.yml" up -d da
-  wait_for_da "${PROJECT_NAME}-da-1"
-  docker compose -p $PROJECT_NAME -f "${LOCAL_DIR}/docker-compose-local.yml" up -d etcd
+#  if [[ "$i" == 0 ]]; then
+#    cp "${LOCAL_DIR}/.env" "${PROJECT_ROOT}/.new-env"
+#    printenv >> "${PROJECT_ROOT}/.new-env"
+#  fi
+
+#  if [[ "$i" -lt 4 ]]; then
+    docker compose -p $PROJECT_NAME -f "${LOCAL_DIR}/docker-compose-local.yml" up -d da
+    wait_for_da "${PROJECT_NAME}-da-1"
+    docker compose -p $PROJECT_NAME -f "${LOCAL_DIR}/docker-compose-local.yml" up -d etcd
+#  fi
 
 done
