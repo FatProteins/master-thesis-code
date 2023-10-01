@@ -68,7 +68,7 @@ func (processor *Processor) handleMessage(message network.Message) {
 	//action := processor.actionPicker.DetermineAction()
 	action := processor.actionPicker.GetAction(message.ActionType)
 	logger.Info("Performing '%s' action", action.Name())
-	action.Perform()
+	action.Perform(message.ResetConn)
 	logger.Info("Done with '%s' action", action.Name())
 	response := message.GetResponse()
 	err = action.GenerateResponse(response)

@@ -87,6 +87,7 @@ func main() {
 			messagesCount := 0
 			errorsCount := 0
 			done := ctx.Done()
+			retryFromRestart := false
 		loop:
 			for {
 				logger.Debug("Sending put %d", messagesCount)
@@ -97,11 +98,43 @@ func main() {
 				value = key
 
 				if key == "10000" {
-					logger.Info("Sending message %d with key %s and value %s", messagesCount+1, key, value)
+					logger.Info("Sending key %s and value %s", key, value)
+				}
+
+				if key == "10101" {
+					logger.Info("Waiting 5 seconds for leader to restart")
+					time.Sleep(5 * time.Second)
+					logger.Info("Sending key %s and value %s", key, value)
 				}
 
 				if messagesCount == 11000 {
+					//if !retryFromRestart {
+					//	messagesCount = 10101
+					//	retryFromRestart = true
+					//	logger.Info("Resending from key 10100")
+					//	continue loop
+					//}
+
 					break loop
+				}
+
+				if retryFromRestart && messagesCount >= 10101 && messagesCount <= 10104 {
+					reqCtx, reqCancel := context.WithTimeout(ctx, 5*time.Second)
+					logger.Info("Client get request BEFORE PUT for key %s", key)
+					resp, err := client.Get(reqCtx, key)
+					if err != nil {
+						if resp != nil {
+							response := (etcdserverpb.RangeResponse)(*resp)
+							logger.ErrorErr(err, "Failed get request for key %s and value %s: %s", key, value, (&response).String())
+						} else {
+							logger.ErrorErr(err, "Failed get request with no response for key %s and value %s", key, value)
+						}
+					} else {
+						for _, kv := range resp.Kvs {
+							logger.Info("Got response key %s and value %s", kv.Key, kv.Value)
+						}
+					}
+					reqCancel()
 				}
 
 				timestampStart := time.Now().UnixNano()
@@ -115,6 +148,25 @@ func main() {
 				if !success {
 					errorsCount++
 					//break loop
+				}
+
+				if retryFromRestart && messagesCount >= 10101 && messagesCount <= 10104 {
+					reqCtx, reqCancel = context.WithTimeout(ctx, 5*time.Second)
+					logger.Info("Client get request AFTER PUT for key %s", key)
+					resp, err := client.Get(reqCtx, key)
+					if err != nil {
+						if resp != nil {
+							response := (etcdserverpb.RangeResponse)(*resp)
+							logger.ErrorErr(err, "Failed get request for key %s and value %s: %s", key, value, (&response).String())
+						} else {
+							logger.ErrorErr(err, "Failed get request with no response for key %s and value %s", key, value)
+						}
+					} else {
+						for _, kv := range resp.Kvs {
+							logger.Info("Got response key %s and value %s", kv.Key, kv.Value)
+						}
+					}
+					reqCancel()
 				}
 
 				storageChan <- kvPair{
@@ -211,9 +263,9 @@ func doNextOp(ctx context.Context, client *clientv3.Client, key string, value st
 	if err != nil {
 		if resp != nil {
 			response := (etcdserverpb.PutResponse)(*resp)
-			logger.ErrorErr(err, "Failed put request: %s", (&response).String())
+			logger.ErrorErr(err, "Failed put request for key %s and value %s: %s", key, value, (&response).String())
 		} else {
-			logger.ErrorErr(err, "Failed put request with no response")
+			logger.ErrorErr(err, "Failed put request with no response for key %s and value %s", key, value)
 		}
 	}
 	return err

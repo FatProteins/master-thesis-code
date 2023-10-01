@@ -3,7 +3,7 @@ unix-from-da-domain-socket-path: "${FROM_DA_CONTAINER_SOCKET_PATH}"
 faults-enabled: true
 actions:
   noop:
-    probability: 0.9999
+    probability: 1.0
   halt:
     probability: 0.0
     max-duration: 10000
@@ -14,9 +14,9 @@ actions:
     continue-command: "docker unpause ${CONSENSUS_CONTAINER}"
   stop:
     probability: 0.0
-    max-duration: 10000
-    stop-command: "docker stop ${CONSENSUS_CONTAINER}"
+    max-duration: 0
+    stop-command: "docker stop --signal SIGKILL ${CONSENSUS_CONTAINER}"
     restart-command: "docker restart ${CONSENSUS_CONTAINER}"
   resend-last-message:
-    probability: 0.0001
+    probability: 0.0
     max-duration: 0

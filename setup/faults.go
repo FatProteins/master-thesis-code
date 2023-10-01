@@ -57,7 +57,7 @@ const (
 )
 
 type FaultAction interface {
-	Perform()
+	Perform(resetConnFunc func())
 	Name() string
 	GenerateResponse(*protocol.Message) error
 }
@@ -177,7 +177,7 @@ func (action *NoopAction) GenerateResponse(response *protocol.Message) error {
 	return nil
 }
 
-func (action *NoopAction) Perform() {
+func (action *NoopAction) Perform(func()) {
 	// Do nothing
 }
 
@@ -205,7 +205,7 @@ func (action *HaltAction) Name() string {
 	return "Halt"
 }
 
-func (action *HaltAction) Perform() {
+func (action *HaltAction) Perform(func()) {
 	// TODO: Introduce randomness
 	time.Sleep(time.Duration(action.config.Actions.Halt.MaxDuration) * time.Millisecond)
 }
@@ -236,7 +236,7 @@ func (action *PauseAction) Name() string {
 	return "Pause"
 }
 
-func (action *PauseAction) Perform() {
+func (action *PauseAction) Perform(func()) {
 	pauseConfig := action.config.Actions.Pause
 	err := exec.Command(action.pauseCmd, action.pauseArgs...).Run()
 	if err != nil {
@@ -278,20 +278,29 @@ func (action *StopAction) Name() string {
 	return "Stop"
 }
 
-func (action *StopAction) Perform() {
+func (action *StopAction) Perform(resetConnFunc func()) {
 	stopConfig := &action.config.Actions.Stop
+	logger.Info("Stopping container with command %s", action.stopCmd)
 	err := exec.Command(action.stopCmd, action.stopArgs...).Run()
 	if err != nil {
 		logger.ErrorErr(err, "Failed to execute stop command")
 		return
 	}
 
+	logger.Info("Resetting connection...")
+	resetConnFunc()
+
+	logger.Info("Waiting after stop...")
 	time.Sleep(time.Duration(stopConfig.MaxDuration) * time.Millisecond)
+	logger.Info("Restarting container with command %s", action.restartCmd)
+	logger.Info("Restarting container with args %s", action.restartArgs)
 	err = exec.Command(action.restartCmd, action.restartArgs...).Run()
 	if err != nil {
 		logger.ErrorErr(err, "Failed to execute restart command")
 		return
 	}
+
+	logger.Info("Restarted container")
 }
 
 type ResendLastMessageAction struct {
@@ -313,7 +322,7 @@ func (action *ResendLastMessageAction) Name() string {
 	return "ResendLastMessage"
 }
 
-func (action *ResendLastMessageAction) Perform() {
+func (action *ResendLastMessageAction) Perform(func()) {
 
 }
 

@@ -33,6 +33,11 @@ do
 done
 
 echo "Deploying locally with a cluster size of ${CLUSTER_SIZE}"
+if [[ "${DISABLE_INTERRUPT}" == "1" ]]; then
+  echo "Interrupt is turned OFF"
+else
+  echo "Interrupt is enabled"
+fi
 
 . "${LOCAL_DIR}/.env"
 

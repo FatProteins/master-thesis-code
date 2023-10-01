@@ -34,7 +34,7 @@ func Run() {
 
 	msgChan := make(chan network.Message, 10000)
 	respChan := make(chan network.Message, 10000)
-	networkLayer, err := network.NewNetworkLayer(msgChan, respChan)
+	networkLayer, err := network.NewNetworkLayer(msgChan, respChan, localAddr, faultConfig.UnixToDaDomainSocketPath)
 	if err != nil {
 		logger.ErrorErr(err, "Could not create network layer")
 		os.Exit(1)
@@ -48,7 +48,7 @@ func Run() {
 	defer cancel()
 
 	logger.Info("Starting application...")
-	networkLayer.RunAsync(ctx, localAddr)
+	networkLayer.RunAsync(ctx)
 	processor.RunAsync(ctx)
 
 	logger.Info("Ready.")

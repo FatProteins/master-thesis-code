@@ -7,45 +7,66 @@ import (
 	"github.com/FatProteins/master-thesis-code/util"
 	"google.golang.org/protobuf/proto"
 	"net"
+	"os"
+	"sync/atomic"
 )
 
 var logger = daLogger.NewLogger("network")
 
 type NetworkLayer struct {
 	*net.UnixConn
-	messagePool *util.Pool[protocol.Message]
-	handleChan  chan<- Message
-	respChan    <-chan Message
+	localAddr      *net.UnixAddr
+	messagePool    *util.Pool[protocol.Message]
+	handleChan     chan<- Message
+	respChan       <-chan Message
+	unixSocketPath string
+	resetConn      atomic.Bool
 }
 
-func NewNetworkLayer(handleChan chan<- Message, respChan <-chan Message) (*NetworkLayer, error) {
+func NewNetworkLayer(handleChan chan<- Message, respChan <-chan Message, localAddr *net.UnixAddr, unixSocketPath string) (*NetworkLayer, error) {
 
 	//connection, err := net.DialUnix("unixgram", nil, remoteAddr)
 	//if err != nil {
 	//	return nil, err
 	//}
 
-	return &NetworkLayer{messagePool: util.NewPool[protocol.Message](), handleChan: handleChan, respChan: respChan}, nil
+	resetConn := atomic.Bool{}
+	resetConn.Store(true)
+	return &NetworkLayer{localAddr: localAddr, messagePool: util.NewPool[protocol.Message](), handleChan: handleChan, respChan: respChan, unixSocketPath: unixSocketPath, resetConn: resetConn}, nil
 }
 
-func (networkLayer *NetworkLayer) RunAsync(ctx context.Context, localAddr *net.UnixAddr) {
+func (networkLayer *NetworkLayer) ResetConn() {
+	if networkLayer.UnixConn != nil {
+		networkLayer.UnixConn.Close()
+		err := os.Remove(networkLayer.unixSocketPath)
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	listener, err := net.ListenUnix("unix", networkLayer.localAddr)
+	if err != nil {
+		panic("failed to listen to unix socket")
+	}
+
+	connection, err := listener.AcceptUnix()
+	if err != nil {
+		panic("failed to connect unix socket")
+	}
+	networkLayer.UnixConn = connection
+}
+
+func (networkLayer *NetworkLayer) RunAsync(ctx context.Context) {
 	go func() {
-		listener, err := net.ListenUnix("unix", localAddr)
-		if err != nil {
-			panic("failed to listen to unix socket")
-		}
-
-		connection, err := listener.AcceptUnix()
-		if err != nil {
-			panic("failed to connect unix socket")
-		}
-		networkLayer.UnixConn = connection
-
 		messageBuffer := make([]byte, 4096*10)
 		for {
+			if networkLayer.resetConn.Load() {
+				networkLayer.ResetConn()
+				networkLayer.resetConn.Store(false)
+			}
 			bytesRead, _, err := networkLayer.ReadFromUnix(messageBuffer)
 			if err != nil {
-				logger.ErrorErr(err, "Failed to read message from unix socket")
+				//logger.ErrorErr(err, "Failed to read message from unix socket")
 				select {
 				case <-ctx.Done():
 					return
@@ -61,7 +82,7 @@ func (networkLayer *NetworkLayer) RunAsync(ctx context.Context, localAddr *net.U
 
 			err = proto.Unmarshal(messageBuffer, protoMsg)
 			if err != nil {
-				logger.ErrorErr(err, "Failed to unmarshal message")
+				//logger.ErrorErr(err, "Failed to unmarshal message")
 				select {
 				case <-ctx.Done():
 					return
@@ -97,6 +118,9 @@ func (networkLayer *NetworkLayer) RunAsync(ctx context.Context, localAddr *net.U
 					}
 
 					logger.Debug("Sent DA response with length %d", bytesWritten)
+				},
+				resetConnFunc: func() {
+					networkLayer.resetConn.Store(true)
 				},
 			}:
 			}
