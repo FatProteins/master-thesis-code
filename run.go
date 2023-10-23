@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"github.com/FatProteins/master-thesis-code/consensus"
 	daLogger "github.com/FatProteins/master-thesis-code/logger"
 	"github.com/FatProteins/master-thesis-code/network"
 	"github.com/FatProteins/master-thesis-code/process"
+	"github.com/FatProteins/master-thesis-code/rest"
 	"github.com/FatProteins/master-thesis-code/setup"
 	"net"
 	"os"
@@ -50,6 +52,12 @@ func Run() {
 	logger.Info("Starting application...")
 	networkLayer.RunAsync(ctx)
 	processor.RunAsync(ctx)
+
+	etcdClientPort := os.Getenv("ETCD_CLIENT_CONTAINER_PORT")
+	if etcdClientPort == "" {
+		panic("ETCD_CLIENT_CONTAINER_PORT env variable is empty or not set")
+	}
+	go rest.EducationApi(networkLayer, actionPicker, consensus.NewEtcdClient(ctx, []string{"etcd:" + etcdClientPort}))
 
 	logger.Info("Ready.")
 	interrupt := make(chan os.Signal, 1)

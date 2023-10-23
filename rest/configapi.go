@@ -19,5 +19,4 @@ func updateConfig(context *gin.Context) {
 		logger.ErrorErr(err, "Could not read config update entity")
 		return
 	}
-
 }

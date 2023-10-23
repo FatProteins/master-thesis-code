@@ -4,13 +4,10 @@ import (
 	"errors"
 	daLogger "github.com/FatProteins/master-thesis-code/logger"
 	"github.com/FatProteins/master-thesis-code/network/protocol"
-	"gonum.org/v1/gonum/floats"
-	"gonum.org/v1/gonum/stat/distuv"
 	"google.golang.org/protobuf/types/known/anypb"
 	"gopkg.in/yaml.v3"
 	"os"
 	"os/exec"
-	"sort"
 	"strings"
 	"time"
 )
@@ -18,43 +15,34 @@ import (
 var logger = daLogger.NewLogger("setup")
 
 type FaultConfig struct {
+	EducationMode              bool   `yaml:"education-mode"`
 	UnixToDaDomainSocketPath   string `yaml:"unix-to-da-domain-socket-path"`
 	UnixFromDaDomainSocketPath string `yaml:"unix-from-da-domain-socket-path"`
 	FaultsEnabled              bool   `yaml:"faults-enabled"`
 	Actions                    struct {
 		Noop struct {
-			Probability float64 `yaml:"probability"`
 		} `yaml:"noop"`
 		Halt struct {
-			Probability float64 `yaml:"probability"`
-			MaxDuration int     `yaml:"max-duration"`
+			MaxDuration int `yaml:"max-duration"`
 		} `yaml:"halt"`
 		Pause struct {
-			Probability     float64 `yaml:"probability"`
-			MaxDuration     int     `yaml:"max-duration"`
-			PauseCommand    string  `yaml:"pause-command"`
-			ContinueCommand string  `yaml:"continue-command"`
+			PauseCommand string `yaml:"pause-command"`
 		} `yaml:"pause"`
 		Stop struct {
-			Probability    float64 `yaml:"probability"`
-			MaxDuration    int     `yaml:"max-duration"`
-			StopCommand    string  `yaml:"stop-command"`
-			RestartCommand string  `yaml:"restart-command"`
+			StopCommand string `yaml:"stop-command"`
 		} `yaml:"stop"`
 		ResendLastMessage struct {
 			Probability float64 `yaml:"probability"`
 			MaxDuration int     `yaml:"max-duration"`
 		} `yaml:"resend-last-message"`
+		Continue struct {
+			ContinueCommand string `yaml:"continue-command"`
+		} `yaml:"continue"`
+		Restart struct {
+			RestartCommand string `yaml:"restart-command"`
+		} `yaml:"restart"`
 	} `yaml:"actions"`
 }
-
-const (
-	noopAction int = iota
-	haltAction
-	pauseAction
-	stopAction
-	resendLastMessageAction
-)
 
 type FaultAction interface {
 	Perform(resetConnFunc func())
@@ -96,7 +84,7 @@ func (config *FaultConfig) verifyConfig() error {
 		return errors.Join(baseErr, errors.New("pause command is empty"))
 	}
 
-	if len(config.Actions.Pause.ContinueCommand) == 0 {
+	if len(config.Actions.Continue.ContinueCommand) == 0 {
 		return errors.Join(baseErr, errors.New("unpause command is empty"))
 	}
 
@@ -104,7 +92,7 @@ func (config *FaultConfig) verifyConfig() error {
 		return errors.Join(baseErr, errors.New("stop command is empty"))
 	}
 
-	if len(config.Actions.Stop.RestartCommand) == 0 {
+	if len(config.Actions.Restart.RestartCommand) == 0 {
 		return errors.Join(baseErr, errors.New("restart command is empty"))
 	}
 
@@ -121,41 +109,34 @@ func (config *FaultConfig) String() (string, error) {
 }
 
 type ActionPicker struct {
-	cumProbabilities []float64
-	actions          map[protocol.ActionType]FaultAction
+	actions        map[protocol.ActionType]FaultAction
+	config         FaultConfig
+	stepByStepMode bool
 }
 
 func NewActionPicker(config FaultConfig) *ActionPicker {
-	probabilities := []float64{
-		config.Actions.Noop.Probability,
-		config.Actions.Halt.Probability,
-		config.Actions.Pause.Probability,
-		config.Actions.Stop.Probability,
-		config.Actions.ResendLastMessage.Probability,
-	}
-	cumSum := make([]float64, 5, 5)
-	floats.CumSum(cumSum, probabilities)
-
 	pauseCmd, pauseArgs := splitCommand(config.Actions.Pause.PauseCommand)
-	continueCmd, continueArgs := splitCommand(config.Actions.Pause.ContinueCommand)
+	continueCmd, continueArgs := splitCommand(config.Actions.Continue.ContinueCommand)
 	stopCmd, stopArgs := splitCommand(config.Actions.Stop.StopCommand)
-	restartCmd, restartArgs := splitCommand(config.Actions.Stop.RestartCommand)
+	restartCmd, restartArgs := splitCommand(config.Actions.Restart.RestartCommand)
 	actions := map[protocol.ActionType]FaultAction{
 		protocol.ActionType_NOOP_ACTION_TYPE:                &NoopAction{},
 		protocol.ActionType_HALT_ACTION_TYPE:                &HaltAction{config},
-		protocol.ActionType_PAUSE_ACTION_TYPE:               &PauseAction{config, pauseCmd, pauseArgs, continueCmd, continueArgs},
-		protocol.ActionType_STOP_ACTION_TYPE:                &StopAction{config, stopCmd, stopArgs, restartCmd, restartArgs},
+		protocol.ActionType_PAUSE_ACTION_TYPE:               &PauseAction{config, pauseCmd, pauseArgs},
+		protocol.ActionType_STOP_ACTION_TYPE:                &StopAction{config, stopCmd, stopArgs},
 		protocol.ActionType_RESEND_LAST_MESSAGE_ACTION_TYPE: &ResendLastMessageAction{},
+		protocol.ActionType_CONTINUE_ACTION_TYPE:            &ContinueAction{config, continueCmd, continueArgs},
+		protocol.ActionType_RESTART_ACTION_TYPE:             &RestartAction{config, restartCmd, restartArgs},
 	}
-	return &ActionPicker{cumProbabilities: cumSum, actions: actions}
+	return &ActionPicker{actions: actions, config: config}
 }
 
 func (actionPicker *ActionPicker) DetermineAction() FaultAction {
-	val := distuv.UnitUniform.Rand() * actionPicker.cumProbabilities[len(actionPicker.cumProbabilities)-1]
-	actionIdx := sort.Search(len(actionPicker.cumProbabilities), func(i int) bool { return actionPicker.cumProbabilities[i] > val })
-	action := actionPicker.actions[protocol.ActionType(actionIdx)]
-	logger.Debug("Picking action '%s'", action.Name())
-	return action
+	if actionPicker.config.EducationMode && actionPicker.stepByStepMode {
+		return actionPicker.actions[protocol.ActionType_PAUSE_ACTION_TYPE]
+	}
+
+	return actionPicker.actions[protocol.ActionType_NOOP_ACTION_TYPE]
 }
 
 func (actionPicker *ActionPicker) GetAction(actionType protocol.ActionType) FaultAction {
@@ -206,7 +187,6 @@ func (action *HaltAction) Name() string {
 }
 
 func (action *HaltAction) Perform(func()) {
-	// TODO: Introduce randomness
 	time.Sleep(time.Duration(action.config.Actions.Halt.MaxDuration) * time.Millisecond)
 }
 
@@ -215,9 +195,6 @@ type PauseAction struct {
 
 	pauseCmd  string
 	pauseArgs []string
-
-	continueCmd  string
-	continueArgs []string
 }
 
 func (action *PauseAction) GenerateResponse(response *protocol.Message) error {
@@ -237,19 +214,41 @@ func (action *PauseAction) Name() string {
 }
 
 func (action *PauseAction) Perform(func()) {
-	pauseConfig := action.config.Actions.Pause
 	err := exec.Command(action.pauseCmd, action.pauseArgs...).Run()
 	if err != nil {
 		logger.ErrorErr(err, "Failed to execute pause command")
-		return
 	}
+}
 
-	time.Sleep(time.Duration(pauseConfig.MaxDuration) * time.Millisecond)
-	err = exec.Command(action.continueCmd, action.continueArgs...).Run()
+type ContinueAction struct {
+	config FaultConfig
+
+	continueCmd  string
+	continueArgs []string
+}
+
+func (action *ContinueAction) Name() string {
+	return "Continue"
+}
+
+func (action *ContinueAction) Perform(func()) {
+	err := exec.Command(action.continueCmd, action.continueArgs...).Run()
 	if err != nil {
 		logger.ErrorErr(err, "Failed to execute continue command")
 		return
 	}
+}
+
+func (action *ContinueAction) GenerateResponse(response *protocol.Message) error {
+	response.Reset()
+	response.MessageType = protocol.MessageType_DA_RESPONSE
+	response.MessageObject = &anypb.Any{}
+	err := response.MessageObject.MarshalFrom(response)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 type StopAction struct {
@@ -257,9 +256,6 @@ type StopAction struct {
 
 	stopCmd  string
 	stopArgs []string
-
-	restartCmd  string
-	restartArgs []string
 }
 
 func (action *StopAction) GenerateResponse(response *protocol.Message) error {
@@ -279,7 +275,6 @@ func (action *StopAction) Name() string {
 }
 
 func (action *StopAction) Perform(resetConnFunc func()) {
-	stopConfig := &action.config.Actions.Stop
 	logger.Info("Stopping container with command %s", action.stopCmd)
 	err := exec.Command(action.stopCmd, action.stopArgs...).Run()
 	if err != nil {
@@ -289,18 +284,41 @@ func (action *StopAction) Perform(resetConnFunc func()) {
 
 	logger.Info("Resetting connection...")
 	resetConnFunc()
+}
 
-	logger.Info("Waiting after stop...")
-	time.Sleep(time.Duration(stopConfig.MaxDuration) * time.Millisecond)
+type RestartAction struct {
+	config FaultConfig
+
+	restartCmd  string
+	restartArgs []string
+}
+
+func (action *RestartAction) Perform(func()) {
 	logger.Info("Restarting container with command %s", action.restartCmd)
 	logger.Info("Restarting container with args %s", action.restartArgs)
-	err = exec.Command(action.restartCmd, action.restartArgs...).Run()
+	err := exec.Command(action.restartCmd, action.restartArgs...).Run()
 	if err != nil {
 		logger.ErrorErr(err, "Failed to execute restart command")
 		return
 	}
 
 	logger.Info("Restarted container")
+}
+
+func (action *RestartAction) GenerateResponse(response *protocol.Message) error {
+	response.Reset()
+	response.MessageType = protocol.MessageType_DA_RESPONSE
+	response.MessageObject = &anypb.Any{}
+	err := response.MessageObject.MarshalFrom(response)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (action *RestartAction) Name() string {
+	return "Restart"
 }
 
 type ResendLastMessageAction struct {

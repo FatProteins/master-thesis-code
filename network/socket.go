@@ -56,6 +56,10 @@ func (networkLayer *NetworkLayer) ResetConn() {
 	networkLayer.UnixConn = connection
 }
 
+func (networkLayer *NetworkLayer) SetResetConn(reset bool) {
+	networkLayer.resetConn.Store(reset)
+}
+
 func (networkLayer *NetworkLayer) RunAsync(ctx context.Context) {
 	go func() {
 		messageBuffer := make([]byte, 4096*10)

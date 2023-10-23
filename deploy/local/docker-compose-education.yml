@@ -1,0 +1,7 @@
+networks:
+  consensus:
+
+services:
+  da:
+    ports:
+      - "${DA_EDUCATION_HOST_PORT}:8080"
