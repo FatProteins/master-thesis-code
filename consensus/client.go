@@ -1,6 +1,10 @@
 package consensus
 
+import "context"
+
 type ConsensusClient interface {
-	GetAllKV(addKV func(string, string)) error
-	StoreKV(key string, value string) error
+	SubscribeToChanges(ctx context.Context) (<-chan interface{}, error)
+	GetKV(addKV func(string, string)) error
+	StoreKV(key, value string) error
+	DeleteKey(key string) error
 }

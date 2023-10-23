@@ -39,6 +39,7 @@ services:
     environment:
       - CONSENSUS_CONTAINER=${CONSENSUS_CONTAINER_NAME}
       - INSTANCE_NUMBER=${INSTANCE_NUMBER}
+      - ALL_ETCD_CLIENT_PORTS=${ALL_ETCD_CLIENT_PORTS}
     env_file:
       - "./.env"
     extra_hosts:

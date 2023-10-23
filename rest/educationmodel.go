@@ -5,7 +5,7 @@ type KVPair struct {
 	Value string `json:"value"`
 }
 
-type Key struct {
+type KeyDelete struct {
 	Key string `json:"key"`
 }
 

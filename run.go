@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"strings"
 )
 
 var logger = daLogger.NewLogger("main")
@@ -57,7 +58,19 @@ func Run() {
 	if etcdClientPort == "" {
 		panic("ETCD_CLIENT_CONTAINER_PORT env variable is empty or not set")
 	}
-	go rest.EducationApi(networkLayer, actionPicker, consensus.NewEtcdClient(ctx, []string{"etcd:" + etcdClientPort}))
+
+	allEtcdClientPorts := os.Getenv("ALL_ETCD_CLIENT_PORTS")
+	if allEtcdClientPorts == "" {
+		panic("ALL_ETCD_CLIENT_PORTS env variable is empty or not set")
+	}
+
+	var allEndpoints []string
+	for _, clientPort := range strings.Split(allEtcdClientPorts, ",") {
+		allEndpoints = append(allEndpoints, "host.docker.internal:"+clientPort)
+	}
+
+	mainEndpoint := "etcd:" + etcdClientPort
+	go rest.EducationApi(networkLayer, actionPicker, consensus.NewEtcdClient(ctx, mainEndpoint, allEndpoints))
 
 	logger.Info("Ready.")
 	interrupt := make(chan os.Signal, 1)
