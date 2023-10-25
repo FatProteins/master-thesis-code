@@ -16,3 +16,7 @@ type ActionTypeRequest struct {
 type AllKVResponse struct {
 	Pairs []KVPair `json:"pairs"`
 }
+
+type StepByStepRequest struct {
+	Enable bool `json:"enable"`
+}

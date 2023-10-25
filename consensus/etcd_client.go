@@ -10,11 +10,10 @@ import (
 var etcdClientLogger = daLogger.NewLogger("etcdclient")
 
 type EtcdClient struct {
-	mainClient       *clientv3.Client
-	contactAllClient *clientv3.Client
+	internalClient *clientv3.Client
 }
 
-func NewEtcdClient(ctx context.Context, mainEndpoint string, endpoints []string) *EtcdClient {
+func NewEtcdClient(ctx context.Context, mainEndpoint string) *EtcdClient {
 	mainClient, err := clientv3.New(clientv3.Config{
 		Endpoints:   []string{mainEndpoint},
 		DialTimeout: 10 * time.Second,
@@ -24,21 +23,12 @@ func NewEtcdClient(ctx context.Context, mainEndpoint string, endpoints []string)
 		panic(err)
 	}
 
-	contactAllClient, err := clientv3.New(clientv3.Config{
-		Endpoints:   endpoints,
-		DialTimeout: 10 * time.Second,
-		Context:     ctx,
-	})
-	if err != nil {
-		panic(err)
-	}
-
-	return &EtcdClient{mainClient: mainClient, contactAllClient: contactAllClient}
+	return &EtcdClient{internalClient: mainClient}
 }
 
 func (c *EtcdClient) SubscribeToChanges(ctx context.Context) (<-chan interface{}, error) {
 	ch := make(chan interface{})
-	watchChan := c.contactAllClient.Watch(ctx, "", clientv3.WithPrefix())
+	watchChan := c.internalClient.Watch(ctx, "", clientv3.WithPrefix())
 
 	go func() {
 		for {
@@ -60,7 +50,9 @@ func (c *EtcdClient) SubscribeToChanges(ctx context.Context) (<-chan interface{}
 }
 
 func (c *EtcdClient) GetKV(addKV func(string, string)) error {
-	response, err := c.contactAllClient.Get(context.TODO(), "", clientv3.WithPrefix())
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	response, err := c.internalClient.Get(ctx, "", clientv3.WithPrefix())
 	if err != nil {
 		return err
 	}
@@ -73,7 +65,9 @@ func (c *EtcdClient) GetKV(addKV func(string, string)) error {
 }
 
 func (c *EtcdClient) StoreKV(key, value string) error {
-	_, err := c.mainClient.Put(context.TODO(), key, value)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_, err := c.internalClient.Put(ctx, key, value)
 	if err != nil {
 		return err
 	}
@@ -82,7 +76,9 @@ func (c *EtcdClient) StoreKV(key, value string) error {
 }
 
 func (c *EtcdClient) DeleteKey(key string) error {
-	_, err := c.mainClient.Delete(context.TODO(), key)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_, err := c.internalClient.Delete(ctx, key)
 	if err != nil {
 		return err
 	}

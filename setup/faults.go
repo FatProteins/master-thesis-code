@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -45,7 +46,7 @@ type FaultConfig struct {
 }
 
 type FaultAction interface {
-	Perform(resetConnFunc func())
+	Perform(resetConnFunc func(), respChan chan<- *protocol.Message)
 	Name() string
 	GenerateResponse(*protocol.Message) error
 }
@@ -111,7 +112,7 @@ func (config *FaultConfig) String() (string, error) {
 type ActionPicker struct {
 	actions        map[protocol.ActionType]FaultAction
 	config         FaultConfig
-	stepByStepMode bool
+	stepByStepMode atomic.Bool
 }
 
 func NewActionPicker(config FaultConfig) *ActionPicker {
@@ -131,8 +132,8 @@ func NewActionPicker(config FaultConfig) *ActionPicker {
 	return &ActionPicker{actions: actions, config: config}
 }
 
-func (actionPicker *ActionPicker) DetermineAction() FaultAction {
-	if actionPicker.config.EducationMode && actionPicker.stepByStepMode {
+func (actionPicker *ActionPicker) DetermineAction(logMsg string) FaultAction {
+	if actionPicker.config.EducationMode && actionPicker.stepByStepMode.Load() && !strings.Contains(logMsg, "MsgHeartbeat") && !strings.Contains(logMsg, "Received") {
 		return actionPicker.actions[protocol.ActionType_PAUSE_ACTION_TYPE]
 	}
 
@@ -141,6 +142,10 @@ func (actionPicker *ActionPicker) DetermineAction() FaultAction {
 
 func (actionPicker *ActionPicker) GetAction(actionType protocol.ActionType) FaultAction {
 	return actionPicker.actions[actionType]
+}
+
+func (actionPicker *ActionPicker) SetStepByStepMode(stepByStepMode bool) {
+	actionPicker.stepByStepMode.Store(stepByStepMode)
 }
 
 type NoopAction struct {
@@ -158,8 +163,9 @@ func (action *NoopAction) GenerateResponse(response *protocol.Message) error {
 	return nil
 }
 
-func (action *NoopAction) Perform(func()) {
+func (action *NoopAction) Perform(resetConn func(), respChan chan<- *protocol.Message) {
 	// Do nothing
+	respChan <- &protocol.Message{}
 }
 
 func (action *NoopAction) Name() string {
@@ -186,8 +192,9 @@ func (action *HaltAction) Name() string {
 	return "Halt"
 }
 
-func (action *HaltAction) Perform(func()) {
+func (action *HaltAction) Perform(resetConn func(), respChan chan<- *protocol.Message) {
 	time.Sleep(time.Duration(action.config.Actions.Halt.MaxDuration) * time.Millisecond)
+	respChan <- &protocol.Message{}
 }
 
 type PauseAction struct {
@@ -213,7 +220,7 @@ func (action *PauseAction) Name() string {
 	return "Pause"
 }
 
-func (action *PauseAction) Perform(func()) {
+func (action *PauseAction) Perform(func(), chan<- *protocol.Message) {
 	err := exec.Command(action.pauseCmd, action.pauseArgs...).Run()
 	if err != nil {
 		logger.ErrorErr(err, "Failed to execute pause command")
@@ -231,12 +238,14 @@ func (action *ContinueAction) Name() string {
 	return "Continue"
 }
 
-func (action *ContinueAction) Perform(func()) {
+func (action *ContinueAction) Perform(resetConn func(), respChan chan<- *protocol.Message) {
 	err := exec.Command(action.continueCmd, action.continueArgs...).Run()
 	if err != nil {
 		logger.ErrorErr(err, "Failed to execute continue command")
 		return
 	}
+
+	respChan <- &protocol.Message{}
 }
 
 func (action *ContinueAction) GenerateResponse(response *protocol.Message) error {
@@ -274,7 +283,7 @@ func (action *StopAction) Name() string {
 	return "Stop"
 }
 
-func (action *StopAction) Perform(resetConnFunc func()) {
+func (action *StopAction) Perform(resetConnFunc func(), respChan chan<- *protocol.Message) {
 	logger.Info("Stopping container with command %s", action.stopCmd)
 	err := exec.Command(action.stopCmd, action.stopArgs...).Run()
 	if err != nil {
@@ -293,7 +302,7 @@ type RestartAction struct {
 	restartArgs []string
 }
 
-func (action *RestartAction) Perform(func()) {
+func (action *RestartAction) Perform(resetConn func(), respChan chan<- *protocol.Message) {
 	logger.Info("Restarting container with command %s", action.restartCmd)
 	logger.Info("Restarting container with args %s", action.restartArgs)
 	err := exec.Command(action.restartCmd, action.restartArgs...).Run()
@@ -340,7 +349,7 @@ func (action *ResendLastMessageAction) Name() string {
 	return "ResendLastMessage"
 }
 
-func (action *ResendLastMessageAction) Perform(func()) {
+func (action *ResendLastMessageAction) Perform(func(), chan<- *protocol.Message) {
 
 }
 

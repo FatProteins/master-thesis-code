@@ -4,6 +4,7 @@ import (
 	"context"
 	daLogger "github.com/FatProteins/master-thesis-code/logger"
 	"github.com/FatProteins/master-thesis-code/network"
+	"github.com/FatProteins/master-thesis-code/network/protocol"
 	"github.com/FatProteins/master-thesis-code/setup"
 )
 
@@ -11,12 +12,12 @@ var logger = daLogger.NewLogger("process")
 
 type Processor struct {
 	messageChan  <-chan network.Message
-	respChan     chan<- network.Message
+	respChan     chan<- *protocol.Message
 	actionPicker *setup.ActionPicker
 }
 
-func NewProcessor(messageChan <-chan network.Message, respChan chan<- network.Message, actionPicker *setup.ActionPicker) *Processor {
-	return &Processor{messageChan: messageChan, actionPicker: actionPicker}
+func NewProcessor(messageChan <-chan network.Message, respChan chan<- *protocol.Message, actionPicker *setup.ActionPicker) *Processor {
+	return &Processor{messageChan: messageChan, respChan: respChan, actionPicker: actionPicker}
 }
 
 func (processor *Processor) RunAsync(ctx context.Context) {
@@ -33,21 +34,11 @@ func (processor *Processor) RunAsync(ctx context.Context) {
 }
 
 func (processor *Processor) handleMessage(message network.Message) {
-	defer message.FreeMessage()
 	logger.Debug("Handling message")
 
 	logger.Debug("Unread messages in queue: %d", len(processor.messageChan))
-	action := processor.actionPicker.DetermineAction()
-	//action := processor.actionPicker.GetAction(message.ActionType)
+	action := processor.actionPicker.DetermineAction(message.LogMessage)
 	logger.Info("Performing '%s' action", action.Name())
-	action.Perform(message.ResetConn)
+	action.Perform(message.ResetConn, processor.respChan)
 	logger.Info("Done with '%s' action", action.Name())
-	//response := message.GetResponse()
-	//err := action.GenerateResponse(response)
-	//if err != nil {
-	//	logger.ErrorErr(err, "Failed to generate DA response. Sending default response instead.")
-	//	response.MessageType = protocol.MessageType_DA_RESPONSE
-	//}
-
-	//message.Respond()
 }

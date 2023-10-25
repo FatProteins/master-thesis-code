@@ -5,6 +5,7 @@ import (
 	"github.com/FatProteins/master-thesis-code/consensus"
 	daLogger "github.com/FatProteins/master-thesis-code/logger"
 	"github.com/FatProteins/master-thesis-code/network"
+	"github.com/FatProteins/master-thesis-code/network/protocol"
 	"github.com/FatProteins/master-thesis-code/process"
 	"github.com/FatProteins/master-thesis-code/rest"
 	"github.com/FatProteins/master-thesis-code/setup"
@@ -36,7 +37,7 @@ func Run() {
 	}
 
 	msgChan := make(chan network.Message, 10000)
-	respChan := make(chan network.Message, 10000)
+	respChan := make(chan *protocol.Message, 10000)
 	networkLayer, err := network.NewNetworkLayer(msgChan, respChan, localAddr, faultConfig.UnixToDaDomainSocketPath)
 	if err != nil {
 		logger.ErrorErr(err, "Could not create network layer")
@@ -70,7 +71,7 @@ func Run() {
 	}
 
 	mainEndpoint := "etcd:" + etcdClientPort
-	go rest.EducationApi(networkLayer, actionPicker, consensus.NewEtcdClient(ctx, mainEndpoint, allEndpoints))
+	go rest.EducationApi(networkLayer, actionPicker, consensus.NewEtcdClient(ctx, mainEndpoint))
 
 	logger.Info("Ready.")
 	interrupt := make(chan os.Signal, 1)
