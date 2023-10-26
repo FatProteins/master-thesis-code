@@ -1,6 +1,7 @@
 package network
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	daLogger "github.com/FatProteins/master-thesis-code/logger"
@@ -8,7 +9,6 @@ import (
 	"github.com/FatProteins/master-thesis-code/util"
 	"github.com/google/uuid"
 	"net"
-	"os"
 	"sync"
 	"sync/atomic"
 )
@@ -16,17 +16,18 @@ import (
 var logger = daLogger.NewLogger("network")
 
 type NetworkLayer struct {
-	*net.UnixConn
-	localAddr      *net.UnixAddr
+	*net.TCPConn
+	localAddr      *net.TCPAddr
 	messagePool    *util.Pool[protocol.Message]
 	handleChan     chan<- Message
 	respChan       chan *protocol.Message
 	unixSocketPath string
 	resetConn      *atomic.Bool
 	logCallbacks   sync.Map
+	nodeState      atomic.Value
 }
 
-func NewNetworkLayer(handleChan chan<- Message, respChan chan *protocol.Message, localAddr *net.UnixAddr, unixSocketPath string) (*NetworkLayer, error) {
+func NewNetworkLayer(handleChan chan<- Message, respChan chan *protocol.Message, localAddr *net.TCPAddr, unixSocketPath string) (*NetworkLayer, error) {
 
 	//connection, err := net.DialUnix("unixgram", nil, remoteAddr)
 	//if err != nil {
@@ -46,24 +47,29 @@ func NewNetworkLayer(handleChan chan<- Message, respChan chan *protocol.Message,
 }
 
 func (networkLayer *NetworkLayer) ResetConn() {
-	if networkLayer.UnixConn != nil {
-		networkLayer.UnixConn.Close()
-		err := os.Remove(networkLayer.unixSocketPath)
-		if err != nil {
-			panic(err)
-		}
+	if networkLayer.TCPConn != nil {
+		networkLayer.TCPConn.Close()
 	}
 
-	listener, err := net.ListenUnix("unix", networkLayer.localAddr)
+	listener, err := net.ListenTCP("tcp", networkLayer.localAddr)
 	if err != nil {
 		panic("failed to listen to unix socket")
 	}
 
-	connection, err := listener.AcceptUnix()
+	connection, err := listener.AcceptTCP()
 	if err != nil {
 		panic("failed to connect unix socket")
 	}
-	networkLayer.UnixConn = connection
+	networkLayer.TCPConn = connection
+}
+
+func (networkLayer *NetworkLayer) GetNodeState() protocol.NodeState {
+	nodeState := networkLayer.nodeState.Load()
+	if nodeState == nil {
+		return protocol.NodeState_FOLLOWER
+	}
+
+	return nodeState.(protocol.NodeState)
 }
 
 func (networkLayer *NetworkLayer) SetResetConn(reset bool) {
@@ -85,16 +91,31 @@ func (networkLayer *NetworkLayer) GetRespChan() chan<- *protocol.Message {
 }
 
 func (networkLayer *NetworkLayer) RunAsync(ctx context.Context) {
+	var scanner *bufio.Scanner
 	go func() {
 		for {
 			if networkLayer.resetConn.Load() {
+				logger.Info("Resetting connection to Node")
 				networkLayer.ResetConn()
 				networkLayer.resetConn.Store(false)
+				scanner = bufio.NewScanner(networkLayer.TCPConn)
 			}
 
-			decoder := json.NewDecoder(networkLayer.UnixConn)
+			scanner.Scan()
+			err := scanner.Err()
+			if err != nil {
+				logger.ErrorErr(err, "Error reading from connection")
+				select {
+				case <-ctx.Done():
+					return
+				default:
+					continue
+				}
+			}
+
 			protoMsg := protocol.Message{}
-			err := decoder.Decode(&protoMsg)
+			bytes := scanner.Bytes()
+			err = json.Unmarshal(bytes, &protoMsg)
 			if err != nil {
 				//logger.ErrorErr(err, "Failed to read message from unix socket")
 				select {
@@ -103,6 +124,11 @@ func (networkLayer *NetworkLayer) RunAsync(ctx context.Context) {
 				default:
 					continue
 				}
+			}
+
+			if protoMsg.MessageType == protocol.MessageType_STATE_LOG {
+				networkLayer.nodeState.Store(protoMsg.NodeState)
+				continue
 			}
 
 			networkLayer.logCallbacks.Range(func(key, value any) bool {
@@ -130,7 +156,7 @@ func (networkLayer *NetworkLayer) RunAsync(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case response := <-networkLayer.respChan:
-				encoder := json.NewEncoder(networkLayer.UnixConn)
+				encoder := json.NewEncoder(networkLayer.TCPConn)
 				logger.Debug("Responding with response '%s'", response.String())
 				err := encoder.Encode(&response)
 				if err != nil {
@@ -145,5 +171,5 @@ func (networkLayer *NetworkLayer) RunAsync(ctx context.Context) {
 }
 
 func (networkLayer *NetworkLayer) Close() error {
-	return networkLayer.UnixConn.Close()
+	return networkLayer.TCPConn.Close()
 }

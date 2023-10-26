@@ -30,7 +30,7 @@ func Run() {
 	}
 	logger.Info("Using fault config:\n%s", configString)
 
-	localAddr, err := net.ResolveUnixAddr("unixgram", faultConfig.UnixToDaDomainSocketPath)
+	localAddr, err := net.ResolveTCPAddr("tcp", ":8090")
 	if err != nil {
 		logger.ErrorErr(err, "Could not resolve unix address")
 		os.Exit(1)

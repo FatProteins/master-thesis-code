@@ -9,6 +9,6 @@ RUN apt-get update && apt-get -qy full-upgrade && apt-get install -qy gettext-ba
 
 WORKDIR /thesis
 
-EXPOSE 8080
+EXPOSE 8080 8090
 
 ENTRYPOINT ["bash", "da-run.sh"]

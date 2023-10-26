@@ -4,7 +4,6 @@ import (
 	"errors"
 	daLogger "github.com/FatProteins/master-thesis-code/logger"
 	"github.com/FatProteins/master-thesis-code/network/protocol"
-	"google.golang.org/protobuf/types/known/anypb"
 	"gopkg.in/yaml.v3"
 	"os"
 	"os/exec"
@@ -46,7 +45,7 @@ type FaultConfig struct {
 }
 
 type FaultAction interface {
-	Perform(resetConnFunc func(), respChan chan<- *protocol.Message)
+	Perform(resetConnFunc func(), respChan chan<- *protocol.Message) error
 	Name() string
 	GenerateResponse(*protocol.Message) error
 }
@@ -152,20 +151,13 @@ type NoopAction struct {
 }
 
 func (action *NoopAction) GenerateResponse(response *protocol.Message) error {
-	response.Reset()
-	response.MessageType = protocol.MessageType_DA_RESPONSE
-	response.MessageObject = &anypb.Any{}
-	err := response.MessageObject.MarshalFrom(response)
-	if err != nil {
-		return err
-	}
-
 	return nil
 }
 
-func (action *NoopAction) Perform(resetConn func(), respChan chan<- *protocol.Message) {
+func (action *NoopAction) Perform(resetConn func(), respChan chan<- *protocol.Message) error {
 	// Do nothing
 	respChan <- &protocol.Message{}
+	return nil
 }
 
 func (action *NoopAction) Name() string {
@@ -177,14 +169,6 @@ type HaltAction struct {
 }
 
 func (action *HaltAction) GenerateResponse(response *protocol.Message) error {
-	response.Reset()
-	response.MessageType = protocol.MessageType_DA_RESPONSE
-	response.MessageObject = &anypb.Any{}
-	err := response.MessageObject.MarshalFrom(response)
-	if err != nil {
-		return err
-	}
-
 	return nil
 }
 
@@ -192,9 +176,10 @@ func (action *HaltAction) Name() string {
 	return "Halt"
 }
 
-func (action *HaltAction) Perform(resetConn func(), respChan chan<- *protocol.Message) {
+func (action *HaltAction) Perform(resetConn func(), respChan chan<- *protocol.Message) error {
 	time.Sleep(time.Duration(action.config.Actions.Halt.MaxDuration) * time.Millisecond)
 	respChan <- &protocol.Message{}
+	return nil
 }
 
 type PauseAction struct {
@@ -205,14 +190,6 @@ type PauseAction struct {
 }
 
 func (action *PauseAction) GenerateResponse(response *protocol.Message) error {
-	response.Reset()
-	response.MessageType = protocol.MessageType_DA_RESPONSE
-	response.MessageObject = &anypb.Any{}
-	err := response.MessageObject.MarshalFrom(response)
-	if err != nil {
-		return err
-	}
-
 	return nil
 }
 
@@ -220,11 +197,14 @@ func (action *PauseAction) Name() string {
 	return "Pause"
 }
 
-func (action *PauseAction) Perform(func(), chan<- *protocol.Message) {
+func (action *PauseAction) Perform(func(), chan<- *protocol.Message) error {
 	err := exec.Command(action.pauseCmd, action.pauseArgs...).Run()
 	if err != nil {
 		logger.ErrorErr(err, "Failed to execute pause command")
+		return err
 	}
+
+	return nil
 }
 
 type ContinueAction struct {
@@ -238,25 +218,18 @@ func (action *ContinueAction) Name() string {
 	return "Continue"
 }
 
-func (action *ContinueAction) Perform(resetConn func(), respChan chan<- *protocol.Message) {
+func (action *ContinueAction) Perform(resetConn func(), respChan chan<- *protocol.Message) error {
 	err := exec.Command(action.continueCmd, action.continueArgs...).Run()
 	if err != nil {
 		logger.ErrorErr(err, "Failed to execute continue command")
-		return
-	}
-
-	respChan <- &protocol.Message{}
-}
-
-func (action *ContinueAction) GenerateResponse(response *protocol.Message) error {
-	response.Reset()
-	response.MessageType = protocol.MessageType_DA_RESPONSE
-	response.MessageObject = &anypb.Any{}
-	err := response.MessageObject.MarshalFrom(response)
-	if err != nil {
 		return err
 	}
 
+	respChan <- &protocol.Message{}
+	return nil
+}
+
+func (action *ContinueAction) GenerateResponse(response *protocol.Message) error {
 	return nil
 }
 
@@ -268,14 +241,6 @@ type StopAction struct {
 }
 
 func (action *StopAction) GenerateResponse(response *protocol.Message) error {
-	response.Reset()
-	response.MessageType = protocol.MessageType_DA_RESPONSE
-	response.MessageObject = &anypb.Any{}
-	err := response.MessageObject.MarshalFrom(response)
-	if err != nil {
-		return err
-	}
-
 	return nil
 }
 
@@ -283,16 +248,17 @@ func (action *StopAction) Name() string {
 	return "Stop"
 }
 
-func (action *StopAction) Perform(resetConnFunc func(), respChan chan<- *protocol.Message) {
+func (action *StopAction) Perform(resetConnFunc func(), respChan chan<- *protocol.Message) error {
 	logger.Info("Stopping container with command %s", action.stopCmd)
 	err := exec.Command(action.stopCmd, action.stopArgs...).Run()
 	if err != nil {
 		logger.ErrorErr(err, "Failed to execute stop command")
-		return
+		return err
 	}
 
 	logger.Info("Resetting connection...")
 	resetConnFunc()
+	return nil
 }
 
 type RestartAction struct {
@@ -302,27 +268,20 @@ type RestartAction struct {
 	restartArgs []string
 }
 
-func (action *RestartAction) Perform(resetConn func(), respChan chan<- *protocol.Message) {
+func (action *RestartAction) Perform(resetConn func(), respChan chan<- *protocol.Message) error {
 	logger.Info("Restarting container with command %s", action.restartCmd)
 	logger.Info("Restarting container with args %s", action.restartArgs)
 	err := exec.Command(action.restartCmd, action.restartArgs...).Run()
 	if err != nil {
 		logger.ErrorErr(err, "Failed to execute restart command")
-		return
-	}
-
-	logger.Info("Restarted container")
-}
-
-func (action *RestartAction) GenerateResponse(response *protocol.Message) error {
-	response.Reset()
-	response.MessageType = protocol.MessageType_DA_RESPONSE
-	response.MessageObject = &anypb.Any{}
-	err := response.MessageObject.MarshalFrom(response)
-	if err != nil {
 		return err
 	}
 
+	logger.Info("Restarted container")
+	return nil
+}
+
+func (action *RestartAction) GenerateResponse(response *protocol.Message) error {
 	return nil
 }
 
@@ -334,14 +293,6 @@ type ResendLastMessageAction struct {
 }
 
 func (action *ResendLastMessageAction) GenerateResponse(response *protocol.Message) error {
-	response.Reset()
-	response.MessageType = protocol.MessageType_DA_RESPONSE
-	response.MessageObject = &anypb.Any{}
-	err := response.MessageObject.MarshalFrom(response)
-	if err != nil {
-		return err
-	}
-
 	return nil
 }
 
@@ -349,8 +300,8 @@ func (action *ResendLastMessageAction) Name() string {
 	return "ResendLastMessage"
 }
 
-func (action *ResendLastMessageAction) Perform(func(), chan<- *protocol.Message) {
-
+func (action *ResendLastMessageAction) Perform(func(), chan<- *protocol.Message) error {
+	return nil
 }
 
 func splitCommand(command string) (string, []string) {

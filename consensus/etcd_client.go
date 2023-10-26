@@ -2,7 +2,9 @@ package consensus
 
 import (
 	"context"
+	"fmt"
 	daLogger "github.com/FatProteins/master-thesis-code/logger"
+	"go.etcd.io/etcd/api/v3/mvccpb"
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"time"
 )
@@ -10,7 +12,8 @@ import (
 var etcdClientLogger = daLogger.NewLogger("etcdclient")
 
 type EtcdClient struct {
-	internalClient *clientv3.Client
+	internalEndpoint string
+	internalClient   *clientv3.Client
 }
 
 func NewEtcdClient(ctx context.Context, mainEndpoint string) *EtcdClient {
@@ -23,11 +26,27 @@ func NewEtcdClient(ctx context.Context, mainEndpoint string) *EtcdClient {
 		panic(err)
 	}
 
-	return &EtcdClient{internalClient: mainClient}
+	return &EtcdClient{internalEndpoint: mainEndpoint, internalClient: mainClient}
 }
 
-func (c *EtcdClient) SubscribeToChanges(ctx context.Context) (<-chan interface{}, error) {
-	ch := make(chan interface{})
+func (c *EtcdClient) GetStatus() (NodeStatus, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	statusResp, err := c.internalClient.Status(ctx, c.internalEndpoint)
+	if err != nil {
+		return NodeStatus{}, err
+	}
+	return NodeStatus{
+		NodeId:       fmt.Sprintf("%x", statusResp.Header.MemberId),
+		Leader:       fmt.Sprintf("%x", statusResp.Leader),
+		Term:         statusResp.RaftTerm,
+		Index:        statusResp.RaftIndex,
+		AppliedIndex: statusResp.RaftAppliedIndex,
+	}, nil
+}
+
+func (c *EtcdClient) SubscribeToChanges(ctx context.Context) (<-chan []string, error) {
+	ch := make(chan []string)
 	watchChan := c.internalClient.Watch(ctx, "", clientv3.WithPrefix())
 
 	go func() {
@@ -35,13 +54,24 @@ func (c *EtcdClient) SubscribeToChanges(ctx context.Context) (<-chan interface{}
 			select {
 			case <-ctx.Done():
 				return
-			case _, ok := <-watchChan:
+			case resp, ok := <-watchChan:
 				if !ok {
 					close(ch)
 					return
 				}
 
-				ch <- struct{}{}
+				var changes []string
+				for _, event := range resp.Events {
+					var description string
+					if event.Type == mvccpb.PUT {
+						description = fmt.Sprintf("%s on Key '%s' Value '%s'.", event.Type.String(), event.Kv.Key, event.Kv.Value)
+					} else {
+						description = fmt.Sprintf("%s on Key '%s'.", event.Type.String(), event.Kv.Key)
+					}
+					changes = append(changes, description)
+				}
+
+				ch <- changes
 			}
 		}
 	}()
