@@ -132,7 +132,11 @@ func NewActionPicker(config FaultConfig) *ActionPicker {
 }
 
 func (actionPicker *ActionPicker) DetermineAction(logMsg string) FaultAction {
-	if actionPicker.config.EducationMode && actionPicker.stepByStepMode.Load() && !strings.Contains(logMsg, "MsgHeartbeat") && !strings.Contains(logMsg, "Received") {
+	if actionPicker.config.EducationMode &&
+		actionPicker.stepByStepMode.Load() &&
+		!strings.Contains(logMsg, "MsgHeartbeat") &&
+		!strings.Contains(logMsg, "Received") &&
+		!strings.Contains(logMsg, "MsgReadIndex") {
 		return actionPicker.actions[protocol.ActionType_PAUSE_ACTION_TYPE]
 	}
 

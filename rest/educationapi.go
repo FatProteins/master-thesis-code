@@ -32,6 +32,7 @@ var clientLogConsumer = sync.Map{}
 var currentState = atomic.Value{}
 var stepByStepModeEnabled = atomic.Bool{}
 var stateUpdateChan = make(chan struct{}, 1)
+var getKvUpdateChan = make(chan struct{}, 1)
 
 const (
 	online nodeState = iota
@@ -87,19 +88,55 @@ func EducationApi(networkLayer *network.NetworkLayer, actionPicker *setup.Action
 	corsConfig.AllowWebSockets = true
 	corsConfig.AllowAllOrigins = true
 	router.Use(cors.New(corsConfig))
+	logSubscription(networkLayer)
+	clientLogSubscription()
+	go watchKvSubscription(client)
+	go getKvSubscription(client)
+	go subscribeToState(networkLayer, client)
 	router.POST("/education/action", func(c *gin.Context) { executeAction(c, networkLayer, actionPicker) }, notifyState)
-	router.Any("/education/get-kv", func(c *gin.Context) { kvSubscription(c, client) })
+	//router.Any("/education/watch-kv", func(c *gin.Context) { watchKvSubscription(c, client) })
+	//router.Any("/education/get-kv", func(c *gin.Context) { getKvSubscription(c, client) })
 	router.POST("/education/put-kv", func(c *gin.Context) { storeKeyValue(c, client) }, notifyState)
 	router.POST("/education/delete-kv", func(c *gin.Context) { deleteKeyValue(c, client) }, notifyState)
-	router.Any("/education/subscribe-log", func(c *gin.Context) { logSubscription(c, networkLayer) })
+	//router.Any("/education/subscribe-log", func(c *gin.Context) { logSubscription(c, networkLayer) })
 	router.POST("/education/step-by-step/toggle", func(c *gin.Context) { toggleStepByStep(c, networkLayer, actionPicker) }, notifyState)
 	router.POST("/education/step-by-step/next-step", func(c *gin.Context) { nextStep(c, networkLayer, actionPicker) }, notifyState)
-	router.Any("/education/subscribe-client-log", func(c *gin.Context) { clientLogSubscription(c) })
-	router.Any("/education/subscribe-state", func(c *gin.Context) { subscribeToState(c, networkLayer, client) })
+	//router.Any("/education/subscribe-client-log", func(c *gin.Context) { clientLogSubscription(c) })
+	//router.Any("/education/subscribe-state", func(c *gin.Context) { subscribeToState(c, networkLayer, client) })
 	router.GET("/education/get-state", func(c *gin.Context) { getState(c) })
+	router.Any("/education/updates", subscribeUpdates)
 	err := router.Run(":8080")
 	if err != nil {
 		panic(err)
+	}
+}
+
+var updateChan = make(chan UpdateResponse, 10000)
+
+type UpdateResponse struct {
+	UpdateType   string `json:"updateType"`
+	UpdateObject any    `json:"updateObject"`
+}
+
+func subscribeUpdates(c *gin.Context) {
+	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		educationLogger.ErrorErr(err, "Failed to establish websocket connection")
+		return
+	}
+	defer conn.Close()
+
+	select {
+	case getKvUpdateChan <- struct{}{}:
+	default:
+	}
+	for {
+		update := <-updateChan
+		err = conn.WriteJSON(update)
+		if err != nil {
+			educationLogger.ErrorErr(err, "Could not write to websocket")
+			return
+		}
 	}
 }
 
@@ -111,36 +148,52 @@ func getState(c *gin.Context) {
 	})
 }
 
-func subscribeToState(c *gin.Context, networkLayer *network.NetworkLayer, client consensus.ConsensusClient) {
-	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
-	if err != nil {
-		educationLogger.ErrorErr(err, "Failed to establish Log websocket connection")
-		return
-	}
-	defer conn.Close()
+func subscribeToState(networkLayer *network.NetworkLayer, client consensus.ConsensusClient) {
+	//conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+	//if err != nil {
+	//	educationLogger.ErrorErr(err, "Failed to establish Log websocket connection")
+	//	return
+	//}
+	//defer conn.Close()
 
 	for {
 		status, err := client.GetStatus()
 		if err != nil {
-			err = conn.WriteJSON(NodeStatusUpdate{StatusError: true})
-			if err != nil {
-				educationLogger.ErrorErr(err, "Could not write to NodeStatus websocket")
-				return
+			updateChan <- UpdateResponse{
+				UpdateType:   "state",
+				UpdateObject: NodeStatusUpdate{StatusError: true},
 			}
+			//err = conn.WriteJSON(NodeStatusUpdate{StatusError: true})
+			//if err != nil {
+			//	educationLogger.ErrorErr(err, "Could not write to NodeStatus websocket")
+			//	return
+			//}
 		} else {
-			err = conn.WriteJSON(NodeStatusUpdate{
-				MemberState:  networkLayer.GetNodeState().String(),
-				NodeId:       status.NodeId,
-				Leader:       status.Leader,
-				Term:         status.Term,
-				Index:        status.Index,
-				AppliedIndex: status.AppliedIndex,
-				StatusError:  false,
-			})
-			if err != nil {
-				educationLogger.ErrorErr(err, "Could not write to NodeStatus websocket")
-				return
+			updateChan <- UpdateResponse{
+				UpdateType: "state",
+				UpdateObject: NodeStatusUpdate{
+					MemberState:  networkLayer.GetNodeState().String(),
+					NodeId:       status.NodeId,
+					Leader:       status.Leader,
+					Term:         status.Term,
+					Index:        status.Index,
+					AppliedIndex: status.AppliedIndex,
+					StatusError:  false,
+				},
 			}
+			//err = conn.WriteJSON(NodeStatusUpdate{
+			//	MemberState:  networkLayer.GetNodeState().String(),
+			//	NodeId:       status.NodeId,
+			//	Leader:       status.Leader,
+			//	Term:         status.Term,
+			//	Index:        status.Index,
+			//	AppliedIndex: status.AppliedIndex,
+			//	StatusError:  false,
+			//})
+			//if err != nil {
+			//	educationLogger.ErrorErr(err, "Could not write to NodeStatus websocket")
+			//	return
+			//}
 		}
 
 		select {
@@ -183,12 +236,12 @@ func executeAction(c *gin.Context, networkLayer *network.NetworkLayer, actionPic
 	}
 }
 
-func kvSubscription(c *gin.Context, client consensus.ConsensusClient) {
-	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
-	if err != nil {
-		educationLogger.ErrorErr(err, "Failed to establish KV Store websocket connection")
-		return
-	}
+func watchKvSubscription(client consensus.ConsensusClient) {
+	//conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+	//if err != nil {
+	//	educationLogger.ErrorErr(err, "Failed to establish KV Watch websocket connection")
+	//	return
+	//}
 
 	ch, err := client.SubscribeToChanges(context.TODO())
 	if err != nil {
@@ -196,74 +249,113 @@ func kvSubscription(c *gin.Context, client consensus.ConsensusClient) {
 		return
 	}
 
-	defer conn.Close()
-	var changeLog []string
+	//defer conn.Close()
+	for {
+		changes, ok := <-ch
+		if !ok {
+			educationLogger.Info("Cancelled KV Watch subscription")
+			ch, err = client.SubscribeToChanges(context.TODO())
+			if err != nil {
+				educationLogger.ErrorErr(err, "Could not subscribe to KV changes")
+				return
+			}
+		}
+
+		updateChan <- UpdateResponse{
+			UpdateType:   "watch-kv",
+			UpdateObject: KvWatchUpdate{ChangeLog: changes},
+		}
+		//err := conn.WriteJSON(KvWatchUpdate{ChangeLog: changes})
+		//if err != nil {
+		//	educationLogger.ErrorErr(err, "Could not write KV Watch update")
+		//}
+	}
+}
+
+func getKvSubscription(client consensus.ConsensusClient) {
+	//conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+	//if err != nil {
+	//	educationLogger.ErrorErr(err, "Failed to establish KV Get websocket connection")
+	//	return
+	//}
+
+	//defer conn.Close()
 	for {
 		var kvPairs []KVPair
 
-		err = client.GetKV(func(key string, value string) {
+		err := client.GetKV(func(key string, value string) {
 			kvPairs = append(kvPairs, KVPair{Key: key, Value: value})
 		})
 		if err != nil {
 			educationLogger.ErrorErr(err, "Could not get all KV")
 		} else {
-			err := conn.WriteJSON(KVUpdateResponse{Pairs: kvPairs, ChangeLog: changeLog})
-			if err != nil {
-				educationLogger.ErrorErr(err, "Could not write KV response")
+			updateChan <- UpdateResponse{
+				UpdateType:   "get-kv",
+				UpdateObject: KvGetUpdate{Pairs: kvPairs},
 			}
+			//err := conn.WriteJSON(KvGetUpdate{Pairs: kvPairs})
+			//if err != nil {
+			//	educationLogger.ErrorErr(err, "Could not write KV Get update")
+			//}
 		}
 
-		changes, ok := <-ch
-		if !ok {
-			educationLogger.Info("Cancelled KV subscription")
-			return
-		}
-
-		changeLog = changes
+		<-getKvUpdateChan
 	}
 }
 
-func logSubscription(c *gin.Context, networkLayer *network.NetworkLayer) {
-	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
-	if err != nil {
-		educationLogger.ErrorErr(err, "Failed to establish Log websocket connection")
-		return
-	}
-	defer conn.Close()
+func logSubscription(networkLayer *network.NetworkLayer) {
+	//conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+	//if err != nil {
+	//	educationLogger.ErrorErr(err, "Failed to establish Log websocket connection")
+	//	return
+	//}
+	//defer conn.Close()
 
-	finChan := make(chan struct{})
-	consumerId := networkLayer.RegisterLogConsumer(func(logMsg string) {
-		err := conn.WriteMessage(websocket.TextMessage, []byte(logMsg))
-		if err != nil {
-			educationLogger.ErrorErr(err, "Could not write to Log websocket")
-			close(finChan)
+	//finChan := make(chan struct{})
+	networkLayer.RegisterLogConsumer(func(logMsg string) {
+		if strings.Contains(logMsg, "MsgReadIndex") {
 			return
 		}
-	})
-	defer networkLayer.UnregisterLogConsumer(consumerId)
 
-	<-finChan
+		updateChan <- UpdateResponse{
+			UpdateType:   "log",
+			UpdateObject: LogUpdate{LogMessage: logMsg},
+		}
+		//err := conn.WriteMessage(websocket.TextMessage, []byte(logMsg))
+		//if err != nil {
+		//	educationLogger.ErrorErr(err, "Could not write to Log websocket")
+		//	close(finChan)
+		//	return
+		//}
+	})
+	//defer networkLayer.UnregisterLogConsumer(consumerId)
+
+	//<-finChan
 }
 
-func clientLogSubscription(c *gin.Context) {
-	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
-	if err != nil {
-		educationLogger.ErrorErr(err, "Failed to establish Client Log websocket connection")
-		return
-	}
+func clientLogSubscription() {
+	//conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+	//if err != nil {
+	//	educationLogger.ErrorErr(err, "Failed to establish Client Log websocket connection")
+	//	return
+	//}
 
-	finChan := make(chan struct{})
-	consumerId := addClientLogConsumer(func(logMsg string) {
-		err := conn.WriteMessage(websocket.TextMessage, []byte(logMsg))
-		if err != nil {
-			educationLogger.ErrorErr(err, "Could not write to Client Log websocket")
-			close(finChan)
-			return
+	//finChan := make(chan struct{})
+	addClientLogConsumer(func(logMsg string) {
+		updateChan <- UpdateResponse{
+			UpdateType:   "client-log",
+			UpdateObject: LogUpdate{LogMessage: logMsg},
 		}
+		//err := conn.WriteMessage(websocket.TextMessage, []byte(logMsg))
+		//if err != nil {
+		//	educationLogger.ErrorErr(err, "Could not write to Client Log websocket")
+		//	close(finChan)
+		//	return
+		//}
 	})
-	defer removeClientLogConsumer(consumerId)
+	//defer removeClientLogConsumer(consumerId)
 
-	<-finChan
+	//<-finChan
 }
 
 func storeKeyValue(c *gin.Context, client consensus.ConsensusClient) {
@@ -287,6 +379,10 @@ func storeKeyValue(c *gin.Context, client consensus.ConsensusClient) {
 		return
 	}
 
+	select {
+	case getKvUpdateChan <- struct{}{}:
+	default:
+	}
 	addToClientLog(fmt.Sprintf("PUT '%s' '%s' SUCCESS.", kvPair.Key, kvPair.Value))
 	c.Status(200)
 }
@@ -311,6 +407,10 @@ func deleteKeyValue(c *gin.Context, client consensus.ConsensusClient) {
 		return
 	}
 
+	select {
+	case getKvUpdateChan <- struct{}{}:
+	default:
+	}
 	addToClientLog(fmt.Sprintf("DELETE '%s' SUCCESS.", keyDelete.Key))
 	c.Status(200)
 }

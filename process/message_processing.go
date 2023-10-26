@@ -38,7 +38,11 @@ func (processor *Processor) handleMessage(message network.Message) {
 
 	logger.Debug("Unread messages in queue: %d", len(processor.messageChan))
 	action := processor.actionPicker.DetermineAction(message.LogMessage)
-	logger.Info("Performing '%s' action", action.Name())
-	action.Perform(message.ResetConn, processor.respChan)
-	logger.Info("Done with '%s' action", action.Name())
+	logger.Debug("Performing '%s' action", action.Name())
+	err := action.Perform(message.ResetConn, processor.respChan)
+	if err != nil {
+		logger.ErrorErr(err, "Failed to perform action '%s'", action.Name())
+	} else {
+		logger.Debug("Done with '%s' action", action.Name())
+	}
 }

@@ -13,9 +13,12 @@ type ActionTypeRequest struct {
 	ActionType string `json:"actionType"`
 }
 
-type KVUpdateResponse struct {
-	Pairs     []KVPair `json:"pairs"`
+type KvWatchUpdate struct {
 	ChangeLog []string `json:"changeLog"`
+}
+
+type KvGetUpdate struct {
+	Pairs []KVPair `json:"pairs"`
 }
 
 type StepByStepRequest struct {
@@ -35,4 +38,8 @@ type NodeStatusUpdate struct {
 type StatusResponse struct {
 	CurrentState   string `json:"currentState"`
 	StepByStepMode bool   `json:"stepByStepMode"`
+}
+
+type LogUpdate struct {
+	LogMessage string `json:"logMessage"`
 }

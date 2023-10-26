@@ -55,6 +55,10 @@ func (c *EtcdClient) SubscribeToChanges(ctx context.Context) (<-chan []string, e
 			case <-ctx.Done():
 				return
 			case resp, ok := <-watchChan:
+				err := resp.Err()
+				if err != nil {
+					etcdClientLogger.ErrorErr(err, "Error from watch channel")
+				}
 				if !ok {
 					close(ch)
 					return
