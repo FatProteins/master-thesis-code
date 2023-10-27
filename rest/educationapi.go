@@ -288,6 +288,8 @@ func getKvSubscription(client consensus.ConsensusClient) {
 		})
 		if err != nil {
 			educationLogger.ErrorErr(err, "Could not get all KV")
+			time.Sleep(100 * time.Millisecond)
+			continue
 		} else {
 			updateChan <- UpdateResponse{
 				UpdateType:   "get-kv",
@@ -370,9 +372,9 @@ func storeKeyValue(c *gin.Context, client consensus.ConsensusClient) {
 	if err != nil {
 		educationLogger.ErrorErr(err, "Could not put KV")
 		if strings.Contains(err.Error(), "context deadline exceeded") {
-			addToClientLog(fmt.Sprintf("PUT '%s' '%s' TIMEOUT.", kvPair.Key, kvPair.Value))
+			addToClientLog(fmt.Sprintf("🕒 PUT '%s' '%s' TIMEOUT.", kvPair.Key, kvPair.Value))
 		} else {
-			addToClientLog(fmt.Sprintf("PUT '%s' '%s' FAILURE: %s.", kvPair.Key, kvPair.Value, err.Error()))
+			addToClientLog(fmt.Sprintf("❌ PUT '%s' '%s' FAILURE: %s.", kvPair.Key, kvPair.Value, err.Error()))
 		}
 
 		c.AbortWithError(500, err)
@@ -383,7 +385,7 @@ func storeKeyValue(c *gin.Context, client consensus.ConsensusClient) {
 	case getKvUpdateChan <- struct{}{}:
 	default:
 	}
-	addToClientLog(fmt.Sprintf("PUT '%s' '%s' SUCCESS.", kvPair.Key, kvPair.Value))
+	addToClientLog(fmt.Sprintf("🆗 PUT '%s' '%s' SUCCESS.", kvPair.Key, kvPair.Value))
 	c.Status(200)
 }
 
@@ -392,9 +394,9 @@ func deleteKeyValue(c *gin.Context, client consensus.ConsensusClient) {
 	if err := c.BindJSON(&keyDelete); err != nil {
 		educationLogger.ErrorErr(err, "Could not read KeyDelete body")
 		if strings.Contains(err.Error(), "context deadline exceeded") {
-			addToClientLog(fmt.Sprintf("DELETE '%s' TIMEOUT.", keyDelete.Key))
+			addToClientLog(fmt.Sprintf("🕒 DELETE '%s' TIMEOUT.", keyDelete.Key))
 		} else {
-			addToClientLog(fmt.Sprintf("DELETE '%s' FAILURE: %s.", keyDelete.Key, err.Error()))
+			addToClientLog(fmt.Sprintf("❌ DELETE '%s' FAILURE: %s.", keyDelete.Key, err.Error()))
 		}
 		c.AbortWithError(500, err)
 		return
@@ -411,7 +413,7 @@ func deleteKeyValue(c *gin.Context, client consensus.ConsensusClient) {
 	case getKvUpdateChan <- struct{}{}:
 	default:
 	}
-	addToClientLog(fmt.Sprintf("DELETE '%s' SUCCESS.", keyDelete.Key))
+	addToClientLog(fmt.Sprintf("🆗 DELETE '%s' SUCCESS.", keyDelete.Key))
 	c.Status(200)
 }
 
@@ -436,5 +438,9 @@ func toggleStepByStep(c *gin.Context, networkLayer *network.NetworkLayer, action
 func nextStep(c *gin.Context, networkLayer *network.NetworkLayer, actionPicker *setup.ActionPicker) {
 	action := actionPicker.GetAction(protocol.ActionType_CONTINUE_ACTION_TYPE)
 	action.Perform(func() { networkLayer.SetResetConn(true) }, networkLayer.GetRespChan())
+	select {
+	case getKvUpdateChan <- struct{}{}:
+	default:
+	}
 	c.Status(200)
 }

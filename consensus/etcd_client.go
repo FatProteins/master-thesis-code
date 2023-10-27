@@ -68,9 +68,9 @@ func (c *EtcdClient) SubscribeToChanges(ctx context.Context) (<-chan []string, e
 				for _, event := range resp.Events {
 					var description string
 					if event.Type == mvccpb.PUT {
-						description = fmt.Sprintf("%s on Key '%s' Value '%s'.", event.Type.String(), event.Kv.Key, event.Kv.Value)
+						description = fmt.Sprintf("➕ %s on Key '%s' Value '%s'.", event.Type.String(), event.Kv.Key, event.Kv.Value)
 					} else {
-						description = fmt.Sprintf("%s on Key '%s'.", event.Type.String(), event.Kv.Key)
+						description = fmt.Sprintf("🗑️ %s on Key '%s'.", event.Type.String(), event.Kv.Key)
 					}
 					changes = append(changes, description)
 				}
