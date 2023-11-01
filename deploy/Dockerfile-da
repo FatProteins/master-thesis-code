@@ -5,7 +5,10 @@ ADD config /thesis/config
 ADD bin/da /thesis/da
 ADD deploy/da-run.sh /thesis/da-run.sh
 
-RUN apt-get update && apt-get -qy full-upgrade && apt-get install -qy gettext-base bash curl && curl -fsSL https://get.docker.com/ | sh
+RUN apt-get update &&  \
+    apt-get -qy full-upgrade &&  \
+    apt-get install -qy gettext-base bash curl software-properties-common iproute2 &&  \
+    curl -fsSL https://get.docker.com/ | sh
 
 WORKDIR /thesis
 

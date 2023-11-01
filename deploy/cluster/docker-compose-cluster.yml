@@ -3,6 +3,8 @@ networks:
 
 services:
   etcd:
+    cap_add:
+      - NET_ADMIN
     image: "${ETCD_IMAGE_NAME}:${ETCD_IMAGE_VERSION}"
     networks:
       - consensus
@@ -29,6 +31,8 @@ services:
       - "host.docker.internal:host-gateway"
 
   da:
+    cap_add:
+      - NET_ADMIN
     image: "${DA_IMAGE_NAME}:${DA_IMAGE_VERSION}"
     networks:
       - consensus

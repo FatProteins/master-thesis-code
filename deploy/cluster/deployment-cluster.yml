@@ -6,7 +6,7 @@ deployment:
       user: drotarmel
     - host: zs03.lab.dm.informatik.tu-darmstadt.de
       user: drotarmel
-    - host: zs05.lab.dm.informatik.tu-darmstadt.de
+    - host: zs06.lab.dm.informatik.tu-darmstadt.de
       user: drotarmel
     - host: zs08.lab.dm.informatik.tu-darmstadt.de
       user: drotarmel

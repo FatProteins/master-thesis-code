@@ -58,6 +58,11 @@ done
 ETCD_INITIAL_CLUSTER=${ETCD_INITIAL_CLUSTER%,}
 echo "ETCD_INITIAL_CLUSTER=${ETCD_INITIAL_CLUSTER}"
 
+declare -A INSTANCE_MAP
+for (( i=0; i<CLUSTER_SIZE; i++ )); do
+  INSTANCE_MAP[$i]="$(echo "$i" | tr '0-9' 'A-J')"
+done
+
 function upload_files() {
   INSTANCE_NUMBER="$1"
   FROM_USER="$2"
@@ -80,20 +85,29 @@ function upload_files() {
     echo "INSTANCE_NUMBER=${INSTANCE_NUMBER}"
     echo "CONSENSUS_CONTAINER_NAME=${PROJECT_NAME}-etcd-1"
     echo "DA_DISABLE_INTERRUPT=${DISABLE_INTERRUPT}"
+    echo "CRASH_KEY=${INSTANCE_MAP[$INSTANCE_NUMBER]}"
   } >> "${TEMP_DEPLOYMENT_DIR}/.env-cluster"
 
   echo "Copying files to ${CLUSTER_HOST_IP}"
   if [ -z "${SKIP_ETCD_BUILD}" ]; then
-    . "${CLUSTER_DIR}/copy-files-cluster.sh" --target-host "${CLUSTER_HOST_IP}" --target-user "${CLUSTER_USER}" --from-host "${FROM_HOST}" --from-user "${FROM_USER}"
+    if [ -z "${SKIP_DA_BUILD}" ]; then
+      . "${CLUSTER_DIR}/copy-files-cluster.sh" --target-host "${CLUSTER_HOST_IP}" --target-user "${CLUSTER_USER}" --from-host "${FROM_HOST}" --from-user "${FROM_USER}"
+    else
+      . "${CLUSTER_DIR}/copy-files-cluster.sh" --skip-da-image-upload --target-host "${CLUSTER_HOST_IP}" --target-user "${CLUSTER_USER}" --from-host "${FROM_HOST}" --from-user "${FROM_USER}"
+    fi
   else
-    . "${CLUSTER_DIR}/copy-files-cluster.sh" --target-host "${CLUSTER_HOST_IP}" --target-user "${CLUSTER_USER}" --skip-image-upload --from-host "${FROM_HOST}" --from-user "${FROM_USER}"
+    if [ -z "${SKIP_DA_BUILD}" ]; then
+      . "${CLUSTER_DIR}/copy-files-cluster.sh" --skip-etcd-image-upload --target-host "${CLUSTER_HOST_IP}" --target-user "${CLUSTER_USER}" --from-host "${FROM_HOST}" --from-user "${FROM_USER}"
+    else
+      . "${CLUSTER_DIR}/copy-files-cluster.sh" --skip-da-image-upload --skip-etcd-image-upload --target-host "${CLUSTER_HOST_IP}" --target-user "${CLUSTER_USER}" --from-host "${FROM_HOST}" --from-user "${FROM_USER}"
+    fi
   fi
   rm "${TEMP_DEPLOYMENT_DIR}/.env-cluster"
 }
 
 FIRST_CLUSTER_USER=$(yq -r ".deployment.machines[0].user" "${CLUSTER_DIR}/deployment-cluster.yml")
 FIRST_CLUSTER_HOST_IP=$(yq -r ".deployment.machines[0].host" "${CLUSTER_DIR}/deployment-cluster.yml")
-#upload_files "0"
+upload_files "0"
 
 for (( i=1; i<CLUSTER_SIZE; i++ )); do
   upload_files "$i" "${FIRST_CLUSTER_USER}" "${FIRST_CLUSTER_HOST_IP}"

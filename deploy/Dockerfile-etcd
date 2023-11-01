@@ -9,7 +9,9 @@ COPY bin/etcd /usr/local/bin/
 COPY bin/etcdctl /usr/local/bin/
 COPY bin/etcdutl /usr/local/bin/
 
-RUN apt-get update && apt-get -qy full-upgrade && apt-get install -qy gettext-base bash curl
+RUN apt-get update &&  \
+    apt-get -qy full-upgrade &&  \
+    apt-get install -qy gettext-base bash curl software-properties-common iproute2
 
 #RUN apt-get update
 
