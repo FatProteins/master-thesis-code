@@ -17,7 +17,7 @@ actions:
     continue-command: "docker unpause ${CONSENSUS_CONTAINER}"
   stop:
     probability: 0.0
-    max-duration: 0
+    max-duration: 10000
     stop-command: "docker stop --signal SIGKILL ${CONSENSUS_CONTAINER}"
     restart-command: "docker restart ${CONSENSUS_CONTAINER}"
   resend-last-message:

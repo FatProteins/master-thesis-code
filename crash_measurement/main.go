@@ -172,6 +172,7 @@ func main() {
 
 				timestampStart := time.Now().UnixNano()
 
+			repeatRequest:
 				reqCtx, reqCancel := context.WithTimeout(ctx, 5*time.Second)
 				err := doNextOp(reqCtx, client, key, value)
 				reqCancel()
@@ -180,6 +181,21 @@ func main() {
 				success := err == nil
 				if !success {
 					errorsCount.Add(1)
+					select {
+					case <-done:
+						break loop
+					default:
+						if researchLeader {
+							researchLeader = false
+							leaderEps = nil
+							client.Close()
+							client, err = createEtcdClient(ctx, endpoints)
+							if err != nil {
+								panic(err)
+							}
+						}
+						goto repeatRequest
+					}
 					//break loop
 				}
 
@@ -210,16 +226,6 @@ func main() {
 					timestampEnd:   timestampEnd,
 				}
 
-				if researchLeader {
-					researchLeader = false
-					leaderEps = nil
-					client.Close()
-					client, err = createEtcdClient(ctx, endpoints)
-					if err != nil {
-						panic(err)
-					}
-				}
-
 				select {
 				case <-done:
 					break loop
@@ -241,7 +247,7 @@ func main() {
 		}
 	}()
 
-	time.AfterFunc(180*time.Second, cancel)
+	time.AfterFunc(90*time.Second, cancel)
 
 	var i uint64
 	for i = 0; i < numClients; i++ {

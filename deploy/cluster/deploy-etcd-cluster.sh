@@ -117,7 +117,11 @@ for (( i=0; i<CLUSTER_SIZE; i++ )); do
   CLUSTER_HOST_IP=$(yq -r ".deployment.machines[$i].host" "${CLUSTER_DIR}/deployment-cluster.yml")
   CLUSTER_USER=$(yq -r ".deployment.machines[$i].user" "${CLUSTER_DIR}/deployment-cluster.yml")
   echo "Starting etcd instance on ${CLUSTER_HOST_IP}"
-  ssh "${CLUSTER_USER}@${CLUSTER_HOST_IP}" "REMOTE_DEPLOYMENT_DIR=${REMOTE_DEPLOYMENT_DIR} bash -s" -- < "${CLUSTER_DIR}/start-cluster.sh"
+  if [ -z "${DISABLE_INTERRUPT}" ]; then
+    ssh "${CLUSTER_USER}@${CLUSTER_HOST_IP}" "REMOTE_DEPLOYMENT_DIR=${REMOTE_DEPLOYMENT_DIR} bash -s" -- < "${CLUSTER_DIR}/start-cluster.sh"
+  else
+    ssh "${CLUSTER_USER}@${CLUSTER_HOST_IP}" "REMOTE_DEPLOYMENT_DIR=${REMOTE_DEPLOYMENT_DIR} bash -s" -- < "${CLUSTER_DIR}/start-cluster.sh" "--disable-interrupt"
+  fi
 done
 
 rm -r "${TEMP_DEPLOYMENT_DIR}"

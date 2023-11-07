@@ -67,15 +67,24 @@ func (processor *Processor) handleMessage(message network.Message) {
 	logger.Debug("Unread messages in queue: %d", len(processor.messageChan))
 	//action := processor.actionPicker.DetermineAction()
 	action := processor.actionPicker.GetAction(message.ActionType)
-	logger.Info("Performing '%s' action", action.Name())
-	action.Perform(message.ResetConn)
-	logger.Info("Done with '%s' action", action.Name())
-	response := message.GetResponse()
-	err = action.GenerateResponse(response)
-	if err != nil {
-		logger.ErrorErr(err, "Failed to generate DA response. Sending default response instead.")
-		response.MessageType = protocol.MessageType_DA_RESPONSE
+	if action.Name() != "Noop" {
+		logger.Info("Performing '%s' action", action.Name())
 	}
 
-	message.Respond()
+	action.Perform(message.ResetConn)
+
+	if action.Name() != "Noop" {
+		logger.Info("Done with '%s' action", action.Name())
+	}
+
+	if !message.SkipResponse {
+		response := message.GetResponse()
+		err = action.GenerateResponse(response)
+		if err != nil {
+			logger.ErrorErr(err, "Failed to generate DA response. Sending default response instead.")
+			response.MessageType = protocol.MessageType_DA_RESPONSE
+		}
+
+		message.Respond()
+	}
 }

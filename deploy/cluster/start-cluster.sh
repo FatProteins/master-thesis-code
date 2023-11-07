@@ -2,6 +2,16 @@
 
 set -e
 
+while [ "$#" -gt 0 ]
+do
+  case "$1" in
+  "--disable-interrupt")
+    DISABLE_INTERRUPT=1
+    ;;
+  esac
+  shift
+done
+
 . "${REMOTE_DEPLOYMENT_DIR}/deploy-utils.sh"
 . "${REMOTE_DEPLOYMENT_DIR}/.env-cluster"
 cd "${REMOTE_DEPLOYMENT_DIR}"
@@ -17,8 +27,12 @@ else
   exit 1
 fi
 
-bash -c "${COMPOSE_COMMAND} -p ${PROJECT_NAME} -f ${REMOTE_DEPLOYMENT_DIR}/docker-compose-cluster.yml --env-file ${REMOTE_DEPLOYMENT_DIR}/.env-cluster up -d da"
-wait_for_da "${PROJECT_NAME}-da-1"
+if [ -z "${DISABLE_INTERRUPT}" ]; then
+  bash -c "${COMPOSE_COMMAND} -p ${PROJECT_NAME} -f ${REMOTE_DEPLOYMENT_DIR}/docker-compose-cluster.yml --env-file ${REMOTE_DEPLOYMENT_DIR}/.env-cluster up -d da"
+  wait_for_da "${PROJECT_NAME}-da-1"
+else
+  echo "Only starting etcd instances, because interrupts are disabled."
+fi
 bash -c "${COMPOSE_COMMAND} -p ${PROJECT_NAME} -f ${REMOTE_DEPLOYMENT_DIR}/docker-compose-cluster.yml --env-file ${REMOTE_DEPLOYMENT_DIR}/.env-cluster up -d etcd"
 
 #echo "sleep infinity" > "${REMOTE_DEPLOYMENT_DIR}/start-thesis-experiment.sh"
