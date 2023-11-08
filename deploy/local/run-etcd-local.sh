@@ -76,6 +76,11 @@ DISCOVERY_PORT=$((ETCD_GRPC_BASE_PORT + j))
 ETCD_INITIAL_CLUSTER="${ETCD_INITIAL_CLUSTER}etcd_instance_$j=http://${HOST_IP}:${DISCOVERY_PORT}"
 export ETCD_INITIAL_CLUSTER
 
+declare -A INSTANCE_MAP
+for (( i=0; i<CLUSTER_SIZE; i++ )); do
+  INSTANCE_MAP[$i]="$(echo "$i" | tr '0-9' 'A-J')"
+done
+
 for (( i=0; i<CLUSTER_SIZE; i++ )); do
   export PROJECT_NAME="consensus-$((i + 1))"
   export EXTERNAL_CLIENT_PORT=$((ETCD_CLIENT_BASE_PORT + i))
@@ -85,6 +90,7 @@ for (( i=0; i<CLUSTER_SIZE; i++ )); do
   export DA_VOLUME_PATH="${PROJECT_ROOT}/volumes/volume-$i"
   export INSTANCE_NUMBER="$i"
   export DA_DISABLE_INTERRUPT="${DISABLE_INTERRUPT}"
+  export CRASH_KEY="${INSTANCE_MAP[$INSTANCE_NUMBER]}"
 
 #  if [[ "$i" == 0 ]]; then
 #    cp "${LOCAL_DIR}/.env" "${PROJECT_ROOT}/.new-env"

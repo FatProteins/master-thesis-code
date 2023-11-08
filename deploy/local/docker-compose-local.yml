@@ -26,6 +26,8 @@ services:
       - ETCD_INITIAL_CLUSTER_STATE=${ETCD_CLUSTER_STATE}
       - INSTANCE_NUMBER=${INSTANCE_NUMBER}
       - DA_DISABLE_INTERRUPT=${DA_DISABLE_INTERRUPT}
+      - CRASH_KEY=${CRASH_KEY}
+      - ETCD_LOG_LEVEL=debug
     env_file:
       - "./.env"
     extra_hosts:
