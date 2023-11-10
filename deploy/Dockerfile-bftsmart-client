@@ -1,0 +1,17 @@
+ARG ARCH=amd64
+#FROM --platform=linux/${ARCH} gcr.io/distroless/static-debian11
+FROM --platform=linux/${ARCH} ubuntu:22.04
+
+COPY bftsmart /thesis/bftsmart
+
+WORKDIR /thesis
+
+RUN apt-get update &&  \
+    apt-get -qy full-upgrade &&  \
+    apt-get install -qy gettext-base bash curl software-properties-common iproute2 wget
+RUN wget https://download.oracle.com/java/21/latest/jdk-21_linux-x64_bin.deb
+RUN apt -qy install ./jdk-21_linux-x64_bin.deb
+
+WORKDIR /thesis/bftsmart/build/install/library
+
+ENTRYPOINT ["bash", "smartrun.sh", "bftsmart.demo.map.MapConcurrentClient"]

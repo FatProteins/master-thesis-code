@@ -1,0 +1,10 @@
+deployment:
+  machines:
+    - host: zs01.lab.dm.informatik.tu-darmstadt.de
+      user: drotarmel
+    - host: zs02.lab.dm.informatik.tu-darmstadt.de
+      user: drotarmel
+    - host: zs03.lab.dm.informatik.tu-darmstadt.de
+      user: drotarmel
+    - host: zs06.lab.dm.informatik.tu-darmstadt.de
+      user: drotarmel

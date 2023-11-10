@@ -1,0 +1,26 @@
+ARG ARCH=amd64
+#FROM --platform=linux/${ARCH} gcr.io/distroless/static-debian11
+FROM --platform=linux/${ARCH} ubuntu:22.04
+
+ADD config /thesis/config
+ADD deploy/bftsmart-run.sh /thesis/bftsmart-run.sh
+
+COPY bin/bftsmart /thesis/bftsmart
+
+WORKDIR /thesis
+
+RUN apt-get update &&  \
+    apt-get -qy full-upgrade &&  \
+    apt-get install -qy gettext-base bash curl software-properties-common iproute2 wget
+RUN wget https://download.oracle.com/java/21/latest/jdk-21_linux-x64_bin.deb
+RUN apt -qy install ./jdk-21_linux-x64_bin.deb
+
+#RUN apt-get update
+
+EXPOSE 11000 11001
+
+# Define default command.
+#ARG CLUSTER_STRING
+#ENV CLUSTER=${CLUSTER_STRING}
+#CMD ["bash", "-c", "/usr/local/bin/etcd --initial-advertise-peer-urls http://${ETCD_IP}:${ETCD_GRPC_PORT} --listen-peer-urls http://${ETCD_IP}:${ETCD_GRPC_PORT} --advertise-client-urls http://${ETCD_IP}:${ETCD_CLIENT_PORT} --listen-client-urls http://${ETCD_IP}:${ETCD_CLIENT_PORT} --initial-cluster ${CLUSTER}"]
+ENTRYPOINT ["bash", "/thesis/bftsmart-run.sh"]

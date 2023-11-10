@@ -2,6 +2,25 @@ networks:
   consensus:
 
 services:
+  bftsmart:
+    network_mode: "host"
+    cap_add:
+      - NET_ADMIN
+    image: "${BFTSMART_IMAGE_NAME}:${BFTSMART_IMAGE_VERSION}"
+#    networks:
+#      - consensus
+    ports:
+      - 11000:11000
+      - 11001:11001
+    volumes:
+      - "${DA_VOLUME_PATH}:${DA_CONTAINER_VOLUME_PATH}"
+    environment:
+      - INSTANCE_NUMBER=${INSTANCE_NUMBER}
+    env_file:
+      - "./.env-cluster"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
   etcd:
     cap_add:
       - NET_ADMIN
