@@ -15,6 +15,7 @@ import (
 	"os/signal"
 	"regexp"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -32,14 +33,16 @@ type kvPair struct {
 
 var leaderEps []string
 var targetLeader bool
-var stragglerKey string
+var markerKey string
+var markerValue string
+var faultLeader bool
 
 func main() {
 	endpointsPtr := pflag.StringSliceP("endpoints", "e", nil, "Endpoints of etcd nodes in format 'host:port'")
 	numClientsPtr := pflag.IntP("num-clients", "c", 1, "Number of clients to use concurrently")
-	numMsgsPtr := pflag.IntP("num-msgs", "m", 100000, "Number of messages to send in total")
 	targetLeaderPtr := pflag.BoolP("target-leader", "l", true, "Only target the leader with requests")
-	stragglerKeyPtr := pflag.String("straggler-key", "D", "Straggler key")
+	faultLeaderPtr := pflag.Bool("fault-leader", true, "Fault the leader")
+	markerValuePtr := pflag.String("marker-value", "C", "Marker value")
 	pflag.Parse()
 
 	endpoints := *endpointsPtr
@@ -49,9 +52,9 @@ func main() {
 	}
 
 	numClients := uint64(*numClientsPtr)
-	numMsgs := uint64(*numMsgsPtr)
 	targetLeader = *targetLeaderPtr
-	stragglerKey = *stragglerKeyPtr
+	markerValue = *markerValuePtr
+	faultLeader = *faultLeaderPtr
 
 	for _, endpoint := range endpoints {
 		matched, err := regexp.MatchString(".+:[0-9]+", endpoint)
@@ -68,9 +71,9 @@ func main() {
 	}
 
 	logger.Info("Number of clients: %d", numClients)
-	logger.Info("Number of messages in total: %d", numMsgs)
 	logger.Info("Target leader: %t", targetLeader)
-	logger.Info("Straggler key: %s", stragglerKey)
+	logger.Info("Fault leader: %t", faultLeader)
+	logger.Info("Marker value: %s", markerValue)
 
 	//generateRandomPayload64BaseEncoded()
 	//value := string(buffer)
@@ -79,7 +82,11 @@ func main() {
 
 	storageChan := make(chan kvPair, 65536)
 	storageDoneChan := make(chan struct{})
-	runStorage(storageChan, storageDoneChan, numClients)
+	fileMarkerKey := "L"
+	if !faultLeader {
+		fileMarkerKey = "F"
+	}
+	runStorage(storageChan, storageDoneChan, numClients, fileMarkerKey, markerValue)
 
 	mainCtx, mainCancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer mainCancel()
@@ -88,6 +95,31 @@ func main() {
 	client, err := createEtcdClient(ctx, endpoints)
 	if err != nil {
 		panic("failed to create etcd client")
+	}
+
+	leaderKey := "A"
+	for _, ep := range leaderEps {
+		if strings.Contains(ep, "zs01") {
+			leaderKey = "A"
+		} else if strings.Contains(ep, "zs02") {
+			leaderKey = "B"
+		} else if strings.Contains(ep, "zs03") {
+			leaderKey = "C"
+		} else if strings.Contains(ep, "zs06") {
+			leaderKey = "D"
+		} else if strings.Contains(ep, "zs08") {
+			leaderKey = "E"
+		}
+	}
+
+	if targetLeader {
+		markerKey = leaderKey
+	} else {
+		if leaderKey == "D" {
+			markerKey = "E"
+		} else {
+			markerKey = "D"
+		}
 	}
 
 	defer client.Close()
@@ -102,103 +134,59 @@ func main() {
 	var clientNum uint64
 	totalMessageCount := atomic.Uint64{}
 	errorsCount := atomic.Uint64{}
-	startTime := time.Now()
 	for clientNum = 0; clientNum < numClients; clientNum++ {
 		//break
 		go func(clientCount uint64) {
 			done := ctx.Done()
 			//retryFromRestart := false
 			var messagesCount uint64
-			sentCrash := false
+			sentFault := false
+			researchLeader := false
+			startTime := time.Now()
+
 		loop:
-			for messagesCount = totalMessageCount.Add(1); totalMessageCount.Load() < numMsgs; messagesCount = totalMessageCount.Add(1) {
+			for messagesCount = totalMessageCount.Add(1); true; messagesCount = totalMessageCount.Add(1) {
 				limit.Wait(context.Background())
 				//logger.Debug("Sending put %d", messagesCount)
 				key := strconv.FormatUint(messagesCount, 10)
-				if clientCount == 0 && !sentCrash && time.Since(startTime) > time.Second*35 {
-					sentCrash = true
-					key = stragglerKey
+				if clientCount == 0 && !sentFault && time.Since(startTime) > time.Second*35 {
+					sentFault = true
+					key = markerKey
+					researchLeader = faultLeader && markerValue == "C"
 				}
-
-				//generateRandomPayload64BaseEncoded()
-				//value = string(buffer)
-				value := key
-
-				//if messagesCount % 10000 == 0 {
-				//	logger.Info("Sending key %s and value %s", key, value)
-				//}
-
-				//if key == "10101" {
-				//	logger.Info("Waiting 5 seconds for leader to restart")
-				//	time.Sleep(5 * time.Second)
-				//	logger.Info("Sending key %s and value %s", key, value)
-				//}
-
-				//if messagesCount == 11000 {
-				//if !retryFromRestart {
-				//	messagesCount = 10101
-				//	retryFromRestart = true
-				//	logger.Info("Resending from key 10100")
-				//	continue loop
-				//}
-
-				//	break loop
-				//}
-
-				//if retryFromRestart && messagesCount >= 10101 && messagesCount <= 10104 {
-				//	reqCtx, reqCancel := context.WithTimeout(ctx, 5*time.Second)
-				//	logger.Info("Client get request BEFORE PUT for key %s", key)
-				//	resp, err := client.Get(reqCtx, key)
-				//	if err != nil {
-				//		if resp != nil {
-				//			response := (etcdserverpb.RangeResponse)(*resp)
-				//			logger.ErrorErr(err, "Failed get request for key %s and value %s: %s", key, value, (&response).String())
-				//		} else {
-				//			logger.ErrorErr(err, "Failed get request with no response for key %s and value %s", key, value)
-				//		}
-				//	} else {
-				//		for _, kv := range resp.Kvs {
-				//			logger.Info("Got response key %s and value %s", kv.Key, kv.Value)
-				//		}
-				//	}
-				//	reqCancel()
-				//}
 
 				timestampStart := time.Now().UnixNano()
 
+			repeatRequest:
 				reqCtx, reqCancel := context.WithTimeout(ctx, 5*time.Second)
-				err := doNextOp(reqCtx, client, key, value)
+				err := doNextOp(reqCtx, client, key, markerValue)
 				reqCancel()
 
 				timestampEnd := time.Now().UnixNano()
 				success := err == nil
 				if !success {
 					errorsCount.Add(1)
+					select {
+					case <-done:
+						break loop
+					default:
+						if researchLeader {
+							researchLeader = false
+							leaderEps = nil
+							client.Close()
+							client, err = createEtcdClient(ctx, endpoints)
+							if err != nil {
+								panic(err)
+							}
+						}
+						goto repeatRequest
+					}
 					//break loop
 				}
 
-				//if retryFromRestart && messagesCount >= 10101 && messagesCount <= 10104 {
-				//	reqCtx, reqCancel = context.WithTimeout(ctx, 5*time.Second)
-				//	logger.Info("Client get request AFTER PUT for key %s", key)
-				//	resp, err := client.Get(reqCtx, key)
-				//	if err != nil {
-				//		if resp != nil {
-				//			response := (etcdserverpb.RangeResponse)(*resp)
-				//			logger.ErrorErr(err, "Failed get request for key %s and value %s: %s", key, value, (&response).String())
-				//		} else {
-				//			logger.ErrorErr(err, "Failed get request with no response for key %s and value %s", key, value)
-				//		}
-				//	} else {
-				//		for _, kv := range resp.Kvs {
-				//			logger.Info("Got response key %s and value %s", kv.Key, kv.Value)
-				//		}
-				//	}
-				//	reqCancel()
-				//}
-
 				storageChan <- kvPair{
 					key:            key,
-					value:          value,
+					value:          markerValue,
 					success:        success,
 					timestampStart: timestampStart,
 					timestampEnd:   timestampEnd,
@@ -349,10 +337,10 @@ func createEtcdClient(ctx context.Context, endpoints []string) (*clientv3.Client
 	return client, nil
 }
 
-func runStorage(kv <-chan kvPair, doneChan chan<- struct{}, numClients uint64) {
+func runStorage(kv <-chan kvPair, doneChan chan<- struct{}, numClients uint64, markerKey string, markerValue string) {
 	go func() {
 		now := time.Now()
-		filename := fmt.Sprintf("%d-kv_pairs_%s.csv", numClients, now.Format("2006-01-02T15-04-05"))
+		filename := fmt.Sprintf("%d-%s-%s-etcd_%s.csv", numClients, markerKey, markerValue, now.Format("2006-01-02T15-04-05"))
 		file, err := os.OpenFile(filename, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0644)
 		if err != nil {
 			panic(err)

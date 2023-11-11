@@ -14,4 +14,4 @@ RUN apt -qy install ./jdk-21_linux-x64_bin.deb
 
 WORKDIR /thesis/bftsmart/build/install/library
 
-ENTRYPOINT ["bash", "smartrun.sh", "bftsmart.demo.map.MapConcurrentClient"]
+ENTRYPOINT ["bash", "smartrun.sh", "bftsmart.demo.map.MapPerformanceClient"]

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	daLogger "github.com/FatProteins/master-thesis-code/logger"
 	"github.com/spf13/pflag"
@@ -10,7 +9,6 @@ import (
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"golang.org/x/time/rate"
 	"math"
-	"math/rand"
 	"os"
 	"os/signal"
 	"regexp"
@@ -33,17 +31,11 @@ type kvPair struct {
 
 var leaderEps []string
 var targetLeader bool
-var crashKey string
-var crashLeader bool
-
-var clientStorageChan = make(chan uint64, 1)
 
 func main() {
 	endpointsPtr := pflag.StringSliceP("endpoints", "e", nil, "Endpoints of etcd nodes in format 'host:port'")
 	numClientsPtr := pflag.IntP("num-clients", "c", 1, "Number of clients to use concurrently")
-	numMsgsPtr := pflag.IntP("num-msgs", "m", 0, "Number of messages to send in total")
 	targetLeaderPtr := pflag.BoolP("target-leader", "l", true, "Only target the leader with requests")
-	crashLeaderPtr := pflag.Bool("crash-leader", false, "Crash the leader")
 	pflag.Parse()
 
 	endpoints := *endpointsPtr
@@ -53,12 +45,7 @@ func main() {
 	}
 
 	numClients := uint64(*numClientsPtr)
-	numMsgs := uint64(*numMsgsPtr)
-	if numMsgs == 0 {
-		numMsgs = math.MaxUint64
-	}
 	targetLeader = *targetLeaderPtr
-	crashLeader = *crashLeaderPtr
 
 	for _, endpoint := range endpoints {
 		matched, err := regexp.MatchString(".+:[0-9]+", endpoint)
@@ -75,12 +62,7 @@ func main() {
 	}
 
 	logger.Info("Number of clients: %d", numClients)
-	logger.Info("Number of messages in total: %d", numMsgs)
 	logger.Info("Target leader: %t", targetLeader)
-	logger.Info("Crash leader: %t", crashLeader)
-
-	//generateRandomPayload64BaseEncoded()
-	//value := string(buffer)
 
 	storageChan := make(chan kvPair, 65536)
 	storageDoneChan := make(chan struct{})
@@ -108,173 +90,61 @@ func main() {
 	}()
 
 	wg := sync.WaitGroup{}
-
-	//_, err = client.Put(ctx, "testing5", "test_value")
-	//if err != nil {
-	//	panic(err)
-	//}
-	//logger.Info("Success on putting test_key!")
-	//time.Sleep(60 * time.Second)
 	limit := rate.NewLimiter(rate.Limit(math.MaxInt32), 1)
 	var clientNum uint64
 	totalMessageCount := atomic.Uint64{}
 	errorsCount := atomic.Uint64{}
-	var nextStep uint64 = 1
-outerloop:
-	for clientNum = 0; clientNum < numClients; clientNum += nextStep {
-		//currentlyRunningClients := clientNum
-		//if currentlyRunningClients >= 1000 {
-		//	nextStep = 1000
-		//} else if currentlyRunningClients >= 100 {
-		//	nextStep = 300
-		//} else if currentlyRunningClients >= 50 {
-		//	nextStep = 50
-		//} else if currentlyRunningClients >= 10 {
-		//	nextStep = 10
-		//} else if currentlyRunningClients >= 5 {
-		//	nextStep = 5
-		//} else {
-		//	nextStep = 1
-		//}
 
-		if clientNum > 0 {
-			nextStep = clientNum
-		}
+	logger.Info("Deploying clients: %d", numClients)
+	var count uint64
+	for count = 0; count < numClients; count++ {
+		go func(clientCount uint64) {
+			wg.Add(1)
+			defer wg.Done()
+			done := ctx.Done()
+			var messagesCount uint64
+		loop:
+			for messagesCount = totalMessageCount.Add(1); true; messagesCount = totalMessageCount.Add(1) {
+				limit.Wait(context.Background())
+				key := strconv.FormatUint(messagesCount, 10)
 
-		clientStorageChan <- clientNum + nextStep
-		logger.Info("Deploying clients %d to %d out of %d", clientNum+1, clientNum+nextStep, numClients)
-		var count uint64
-		for count = 0; count < nextStep; count++ {
-			go func(clientCount uint64) {
-				wg.Add(1)
-				defer wg.Done()
-				done := ctx.Done()
-				//retryFromRestart := false
-				var messagesCount uint64
-				researchLeader := false
-			loop:
-				for messagesCount = totalMessageCount.Add(1); totalMessageCount.Load() < numMsgs; messagesCount = totalMessageCount.Add(1) {
-					limit.Wait(context.Background())
-					//logger.Debug("Sending put %d", messagesCount)
-					key := strconv.FormatUint(messagesCount, 10)
+				value := key
 
-					//generateRandomPayload64BaseEncoded()
-					//value = string(buffer)
-					value := key
+				timestampStart := time.Now().UnixNano()
 
-					//if messagesCount % 10000 == 0 {
-					//	logger.Info("Sending key %s and value %s", key, value)
-					//}
+				reqCtx, reqCancel := context.WithTimeout(ctx, 5*time.Second)
+				err := doNextOp(reqCtx, client, key, value)
+				reqCancel()
 
-					//if key == "10101" {
-					//	logger.Info("Waiting 5 seconds for leader to restart")
-					//	time.Sleep(5 * time.Second)
-					//	logger.Info("Sending key %s and value %s", key, value)
-					//}
-
-					//if messagesCount == 11000 {
-					//if !retryFromRestart {
-					//	messagesCount = 10101
-					//	retryFromRestart = true
-					//	logger.Info("Resending from key 10100")
-					//	continue loop
-					//}
-
-					//	break loop
-					//}
-
-					//if retryFromRestart && messagesCount >= 10101 && messagesCount <= 10104 {
-					//	reqCtx, reqCancel := context.WithTimeout(ctx, 5*time.Second)
-					//	logger.Info("Client get request BEFORE PUT for key %s", key)
-					//	resp, err := client.Get(reqCtx, key)
-					//	if err != nil {
-					//		if resp != nil {
-					//			response := (etcdserverpb.RangeResponse)(*resp)
-					//			logger.ErrorErr(err, "Failed get request for key %s and value %s: %s", key, value, (&response).String())
-					//		} else {
-					//			logger.ErrorErr(err, "Failed get request with no response for key %s and value %s", key, value)
-					//		}
-					//	} else {
-					//		for _, kv := range resp.Kvs {
-					//			logger.Info("Got response key %s and value %s", kv.Key, kv.Value)
-					//		}
-					//	}
-					//	reqCancel()
-					//}
-
-					timestampStart := time.Now().UnixNano()
-
-					reqCtx, reqCancel := context.WithTimeout(ctx, 5*time.Second)
-					err := doNextOp(reqCtx, client, key, value)
-					reqCancel()
-
-					timestampEnd := time.Now().UnixNano()
-					success := err == nil
-					if !success {
-						errorsCount.Add(1)
-						//break loop
-					}
-
-					//if retryFromRestart && messagesCount >= 10101 && messagesCount <= 10104 {
-					//	reqCtx, reqCancel = context.WithTimeout(ctx, 5*time.Second)
-					//	logger.Info("Client get request AFTER PUT for key %s", key)
-					//	resp, err := client.Get(reqCtx, key)
-					//	if err != nil {
-					//		if resp != nil {
-					//			response := (etcdserverpb.RangeResponse)(*resp)
-					//			logger.ErrorErr(err, "Failed get request for key %s and value %s: %s", key, value, (&response).String())
-					//		} else {
-					//			logger.ErrorErr(err, "Failed get request with no response for key %s and value %s", key, value)
-					//		}
-					//	} else {
-					//		for _, kv := range resp.Kvs {
-					//			logger.Info("Got response key %s and value %s", kv.Key, kv.Value)
-					//		}
-					//	}
-					//	reqCancel()
-					//}
-
-					storageChan <- kvPair{
-						key:            key,
-						value:          value,
-						success:        success,
-						timestampStart: timestampStart,
-						timestampEnd:   timestampEnd,
-					}
-
-					if researchLeader {
-						researchLeader = false
-						leaderEps = nil
-						client.Close()
-						client, err = createEtcdClient(ctx, endpoints)
-						if err != nil {
-							panic(err)
-						}
-					}
-
-					select {
-					case <-done:
-						break loop
-					default:
-					}
+				timestampEnd := time.Now().UnixNano()
+				success := err == nil
+				if !success {
+					errorsCount.Add(1)
 				}
 
-			}(clientNum + count)
-		}
+				storageChan <- kvPair{
+					key:            key,
+					value:          value,
+					success:        success,
+					timestampStart: timestampStart,
+					timestampEnd:   timestampEnd,
+				}
 
-		time.Sleep(34 * time.Second)
-		select {
-		case <-ctx.Done():
-			break outerloop
-		default:
-		}
+				select {
+				case <-done:
+					break loop
+				default:
+				}
+			}
+
+		}(clientNum + count)
 	}
 
+	time.Sleep(90 * time.Second)
 	cancel()
 
 	wg.Wait()
 
-	logger.Info("Last number of clients: %d", clientNum+nextStep)
 	logger.Info("Sent %d puts", totalMessageCount.Load())
 	logger.Info("%d errors during puts", errorsCount.Load())
 
@@ -283,59 +153,6 @@ outerloop:
 	close(storageChan)
 	<-storageDoneChan
 	logger.Info("Storage done")
-
-	//rd, err := client.Snapshot(mainCtx)
-	//if err != nil {
-	//	panic(err)
-	//}
-	//defer rd.Close()
-
-	//for _, endpoint := range endpoints {
-	//	clientCtx, clientCancel := context.WithTimeout(ctx, 10*time.Second)
-	//	getClient, err := createEtcdClient(clientCtx, []string{endpoint})
-	//	if err != nil {
-	//		logger.ErrorErr(err, "Failed to create client for GET KVs for endpoint %s", endpoint)
-	//		clientCancel()
-	//		continue
-	//	}
-	//
-	//	resp, err := getClient.Get(clientCtx, "", clientv3.WithPrefix())
-	//	if err != nil {
-	//		panic(err)
-	//	}
-	//
-	//	clientCancel()
-	//
-	//	now := time.Now()
-	//	nowStr := now.Format("2006-01-02T15-04-05")
-	//	f, err := os.OpenFile(fmt.Sprintf("snapshot_%s_%s", nowStr, endpoint), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
-	//	if err != nil {
-	//		panic(err)
-	//	}
-	//
-	//	f.WriteString("key,value\n")
-	//	for _, kv := range resp.Kvs {
-	//		f.WriteString(string(kv.Key) + "," + string(kv.Value) + "\n")
-	//	}
-	//
-	//	f.Close()
-	//}
-
-	//now := time.Now()
-	//nowStr := now.Format("2006-01-02T15-04-05")
-	//f, err := os.OpenFile(fmt.Sprintf("snapshot_%s", nowStr), os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
-	//if err != nil {
-	//	panic(err)
-	//}
-	//defer f.Close()
-
-	//size, err := io.Copy(os.Stdout, rd)
-	//size, err := io.Copy(f, rd)
-	//if err != nil {
-	//	panic(err)
-	//}
-
-	//logger.Info("Wrote snapshot of %d bytes.", size)
 }
 
 func doNextOp(ctx context.Context, client *clientv3.Client, key string, value string) error {
@@ -351,25 +168,7 @@ func doNextOp(ctx context.Context, client *clientv3.Client, key string, value st
 	return err
 }
 
-const payloadLength = 8
-
-var seed int64 = 111
-var random = rand.New(rand.NewSource(seed))
-var randomBuffer = make([]byte, payloadLength, payloadLength)
-var buffer = make([]byte, base64.StdEncoding.EncodedLen(payloadLength), base64.StdEncoding.EncodedLen(payloadLength))
-
-func generateRandomPayload64BaseEncoded() []byte {
-	_, _ = random.Read(randomBuffer)
-	base64.StdEncoding.Encode(buffer, randomBuffer)
-	return buffer
-}
-
 func createEtcdClient(ctx context.Context, endpoints []string) (*clientv3.Client, error) {
-	//endpoints := make([]string, numNodes)
-	//for i := 0; i < numNodes; i++ {
-	//	clientPort := 2379 + i
-	//	endpoints[i] = "localhost:" + strconv.Itoa(clientPort)
-	//}
 	client, err := clientv3.New(clientv3.Config{
 		Endpoints:   endpoints,
 		DialTimeout: 5 * time.Second,
@@ -395,13 +194,6 @@ func runStorage(kv <-chan kvPair, doneChan chan<- struct{}, numClients uint64) {
 		defer file.Close()
 
 		for {
-			select {
-			case newClientNum := <-clientStorageChan:
-				file.Close()
-				file = createStorageFile(newClientNum)
-			default:
-			}
-
 			select {
 			case pair, ok := <-kv:
 				if !ok {

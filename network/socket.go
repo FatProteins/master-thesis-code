@@ -5,6 +5,7 @@ import (
 	daLogger "github.com/FatProteins/master-thesis-code/logger"
 	"github.com/FatProteins/master-thesis-code/network/protocol"
 	"github.com/FatProteins/master-thesis-code/util"
+	"github.com/matttproud/golang_protobuf_extensions/pbutil"
 	"google.golang.org/protobuf/proto"
 	"net"
 	"os"
@@ -58,13 +59,16 @@ func (networkLayer *NetworkLayer) ResetConn() {
 
 func (networkLayer *NetworkLayer) RunAsync(ctx context.Context) {
 	go func() {
-		messageBuffer := make([]byte, 4096*10)
+		//messageBuffer := make([]byte, 4096*10)
 		for {
 			if networkLayer.resetConn.Load() {
 				networkLayer.ResetConn()
 				networkLayer.resetConn.Store(false)
 			}
-			bytesRead, _, err := networkLayer.ReadFromUnix(messageBuffer)
+			protoMsg := networkLayer.messagePool.Get()
+
+			bytesRead, err := pbutil.ReadDelimited(networkLayer.UnixConn, protoMsg)
+			//bytesRead, _, err := networkLayer.ReadFromUnix(messageBuffer)
 			if err != nil {
 				//logger.ErrorErr(err, "Failed to read message from unix socket")
 				select {
@@ -77,19 +81,19 @@ func (networkLayer *NetworkLayer) RunAsync(ctx context.Context) {
 
 			logger.Debug("Read msg of length %d", bytesRead)
 
-			messageBuffer = messageBuffer[:bytesRead]
-			protoMsg := networkLayer.messagePool.Get()
+			//messageBuffer = messageBuffer[:bytesRead]
+			//protoMsg := networkLayer.messagePool.Get()
 
-			err = proto.Unmarshal(messageBuffer, protoMsg)
-			if err != nil {
-				//logger.ErrorErr(err, "Failed to unmarshal message")
-				select {
-				case <-ctx.Done():
-					return
-				default:
-					continue
-				}
-			}
+			//err = proto.Unmarshal(messageBuffer, protoMsg)
+			//if err != nil {
+			//logger.ErrorErr(err, "Failed to unmarshal message")
+			//select {
+			//case <-ctx.Done():
+			//	return
+			//default:
+			//	continue
+			//}
+			//}
 
 			select {
 			case <-ctx.Done():
