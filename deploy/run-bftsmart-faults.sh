@@ -14,4 +14,4 @@ for clients in 1 1024; do
   done
 done
 
-bash "${PROJECT_ROOT}/deploy/cluster/shutdown-bftsmart-cluster.sh"
+bash "${PROJECT_ROOT}/deploy/cluster/shutdown-cluster-bftsmart.sh"

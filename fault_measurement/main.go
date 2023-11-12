@@ -15,7 +15,6 @@ import (
 	"os/signal"
 	"regexp"
 	"strconv"
-	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -32,10 +31,12 @@ type kvPair struct {
 }
 
 var leaderEps []string
+var leaderId uint64
 var targetLeader bool
 var markerKey string
 var markerValue string
 var faultLeader bool
+var clientPerNode = make(map[uint64]*clientv3.Client)
 
 func main() {
 	endpointsPtr := pflag.StringSliceP("endpoints", "e", nil, "Endpoints of etcd nodes in format 'host:port'")
@@ -74,6 +75,7 @@ func main() {
 	logger.Info("Target leader: %t", targetLeader)
 	logger.Info("Fault leader: %t", faultLeader)
 	logger.Info("Marker value: %s", markerValue)
+	time.Sleep(5 * time.Second)
 
 	//generateRandomPayload64BaseEncoded()
 	//value := string(buffer)
@@ -92,27 +94,68 @@ func main() {
 	defer mainCancel()
 
 	ctx, cancel := context.WithCancel(mainCtx)
-	client, err := createEtcdClient(ctx, endpoints)
+	aCtx, aCancel := context.WithCancel(ctx)
+	defer aCancel()
+	aClient, err := createEtcdClient(aCtx, endpoints[0:1])
 	if err != nil {
 		panic("failed to create etcd client")
 	}
 
-	leaderKey := "A"
-	for _, ep := range leaderEps {
-		if strings.Contains(ep, "zs01") {
-			leaderKey = "A"
-		} else if strings.Contains(ep, "zs02") {
-			leaderKey = "B"
-		} else if strings.Contains(ep, "zs03") {
-			leaderKey = "C"
-		} else if strings.Contains(ep, "zs06") {
-			leaderKey = "D"
-		} else if strings.Contains(ep, "zs08") {
-			leaderKey = "E"
-		}
+	bCtx, bCancel := context.WithCancel(ctx)
+	defer bCancel()
+	bClient, err := createEtcdClient(bCtx, endpoints[1:2])
+	if err != nil {
+		panic("failed to create etcd client")
 	}
 
-	if targetLeader {
+	cCtx, cCancel := context.WithCancel(ctx)
+	defer cCancel()
+	cClient, err := createEtcdClient(cCtx, endpoints[2:3])
+	if err != nil {
+		panic("failed to create etcd client")
+	}
+
+	dCtx, dCancel := context.WithCancel(ctx)
+	defer dCancel()
+	dClient, err := createEtcdClient(dCtx, endpoints[3:4])
+	if err != nil {
+		panic("failed to create etcd client")
+	}
+
+	eCtx, eCancel := context.WithCancel(ctx)
+	defer eCancel()
+	eClient, err := createEtcdClient(eCtx, endpoints[4:5])
+	if err != nil {
+		panic("failed to create etcd client")
+	}
+
+	mustFindLeaderEndpoints([]*clientv3.Client{aClient, bClient, cClient, dClient, eClient})
+
+	clientPerNode[0x30ae2677002dc3c1] = aClient
+	clientPerNode[0x4805910d3c1d5962] = bClient
+	clientPerNode[0x8380732e2b2bf3e2] = cClient
+	clientPerNode[0xab662f865c0696a1] = dClient
+	clientPerNode[0xdfdc938d196b5c46] = eClient
+
+	atomicClient := atomic.Value{}
+	atomicClient.Store(clientPerNode[leaderId])
+
+	leaderKey := "A"
+	if leaderId == 0x30ae2677002dc3c1 {
+		leaderKey = "A"
+	} else if leaderId == 0x4805910d3c1d5962 {
+		leaderKey = "B"
+	} else if leaderId == 0x8380732e2b2bf3e2 {
+		leaderKey = "C"
+	} else if leaderId == 0xab662f865c0696a1 {
+		leaderKey = "D"
+	} else if leaderId == 0xdfdc938d196b5c46 {
+		leaderKey = "E"
+	} else {
+		panic("Could not identify leader")
+	}
+
+	if faultLeader {
 		markerKey = leaderKey
 	} else {
 		if leaderKey == "D" {
@@ -121,8 +164,6 @@ func main() {
 			markerKey = "D"
 		}
 	}
-
-	defer client.Close()
 
 	//_, err = client.Put(ctx, "testing5", "test_value")
 	//if err != nil {
@@ -143,6 +184,12 @@ func main() {
 			sentFault := false
 			researchLeader := false
 			startTime := time.Now()
+			var subCancel context.CancelFunc
+			defer func() {
+				if subCancel != nil {
+					subCancel()
+				}
+			}()
 
 		loop:
 			for messagesCount = totalMessageCount.Add(1); true; messagesCount = totalMessageCount.Add(1) {
@@ -157,31 +204,47 @@ func main() {
 
 				timestampStart := time.Now().UnixNano()
 
-			repeatRequest:
-				reqCtx, reqCancel := context.WithTimeout(ctx, 5*time.Second)
-				err := doNextOp(reqCtx, client, key, markerValue)
+				reqCtx, reqCancel := context.WithTimeout(ctx, 1*time.Second)
+				err := doNextOp(reqCtx, atomicClient.Load().(*clientv3.Client), key, markerValue)
 				reqCancel()
 
 				timestampEnd := time.Now().UnixNano()
 				success := err == nil
 				if !success {
 					errorsCount.Add(1)
-					select {
-					case <-done:
-						break loop
-					default:
-						if researchLeader {
-							researchLeader = false
-							leaderEps = nil
-							client.Close()
-							client, err = createEtcdClient(ctx, endpoints)
-							if err != nil {
-								panic(err)
-							}
-						}
-						goto repeatRequest
-					}
 					//break loop
+				}
+
+				if researchLeader {
+					researchLeader = false
+					var clients []*clientv3.Client
+					for id, c := range clientPerNode {
+						if leaderId == id {
+							continue
+						}
+
+						clients = append(clients, c)
+					}
+
+				retry:
+					mustFindLeaderEndpoints(clients)
+					var subCtx context.Context
+					subCtx, subCancel = context.WithCancel(ctx)
+					newClient, err := createEtcdClient(subCtx, clientPerNode[leaderId].Endpoints())
+					if err != nil {
+						panic(err)
+					}
+					clientPerNode[leaderId] = newClient
+					atomicClient.Store(newClient)
+					//atomicClient.Store(clientPerNode[leaderId])
+
+					reqCtx, reqCancel = context.WithTimeout(ctx, 1*time.Second)
+					err = doNextOp(reqCtx, atomicClient.Load().(*clientv3.Client), strconv.FormatUint(totalMessageCount.Add(1), 10), markerValue)
+					reqCancel()
+					if err != nil {
+						subCancel()
+						goto retry
+					}
 				}
 
 				storageChan <- kvPair{
@@ -320,15 +383,9 @@ func createEtcdClient(ctx context.Context, endpoints []string) (*clientv3.Client
 	//}
 	client, err := clientv3.New(clientv3.Config{
 		Endpoints:   endpoints,
-		DialTimeout: 5 * time.Second,
+		DialTimeout: 1 * time.Second,
 		Context:     ctx,
 	})
-
-	if targetLeader && len(leaderEps) == 0 {
-		mustFindLeaderEndpoints(client)
-		client.Close()
-		return createEtcdClient(ctx, leaderEps)
-	}
 
 	if err != nil {
 		return nil, err
@@ -370,27 +427,19 @@ func runStorage(kv <-chan kvPair, doneChan chan<- struct{}, numClients uint64, m
 	}()
 }
 
-func mustFindLeaderEndpoints(c *clientv3.Client) {
-	resp, lerr := c.MemberList(context.TODO())
-	if lerr != nil {
-		panic(fmt.Sprintf("failed to get a member list: %s", lerr))
-	}
-
-	leaderID := uint64(0)
-	for _, ep := range c.Endpoints() {
-		if sresp, serr := c.Status(context.TODO(), ep); serr == nil {
-			leaderID = sresp.Leader
-			break
-		}
-	}
-
-	for _, m := range resp.Members {
-		if m.ID == leaderID {
-			leaderEps = m.ClientURLs
+func mustFindLeaderEndpoints(c []*clientv3.Client) {
+	for _, client := range c {
+		//logger.Info("Requesting status at node %s", client.Endpoints()[0])
+		if sresp, serr := client.Status(context.TODO(), client.Endpoints()[0]); serr == nil {
+			if sresp.Leader == 0 || sresp.Leader == leaderId {
+				continue
+			}
+			leaderId = sresp.Leader
+			logger.Info("Found leader at node %s with leaderId %x", client.Endpoints()[0], leaderId)
 			return
 		}
 	}
 
-	logger.Info("Failed to find leader endpoint. Retrying...")
+	//logger.Info("Failed to find leader endpoint. Retrying...")
 	mustFindLeaderEndpoints(c)
 }
