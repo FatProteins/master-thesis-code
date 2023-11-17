@@ -93,14 +93,14 @@ func EducationApi(networkLayer *network.NetworkLayer, actionPicker *setup.Action
 	go watchKvSubscription(client)
 	go getKvSubscription(client)
 	go subscribeToState(networkLayer, client)
-	router.POST("/education/action", func(c *gin.Context) { executeAction(c, networkLayer, actionPicker) }, notifyState)
+	router.POST("/education/action", func(c *gin.Context) { executeAction(c, networkLayer, actionPicker) }, notifyState, triggerGetKvUpdate)
 	//router.Any("/education/watch-kv", func(c *gin.Context) { watchKvSubscription(c, client) })
 	//router.Any("/education/get-kv", func(c *gin.Context) { getKvSubscription(c, client) })
-	router.POST("/education/put-kv", func(c *gin.Context) { storeKeyValue(c, client) }, notifyState)
-	router.POST("/education/delete-kv", func(c *gin.Context) { deleteKeyValue(c, client) }, notifyState)
+	router.POST("/education/put-kv", func(c *gin.Context) { storeKeyValue(c, client) }, notifyState, triggerGetKvUpdate)
+	router.POST("/education/delete-kv", func(c *gin.Context) { deleteKeyValue(c, client) }, notifyState, triggerGetKvUpdate)
 	//router.Any("/education/subscribe-log", func(c *gin.Context) { logSubscription(c, networkLayer) })
-	router.POST("/education/step-by-step/toggle", func(c *gin.Context) { toggleStepByStep(c, networkLayer, actionPicker) }, notifyState)
-	router.POST("/education/step-by-step/next-step", func(c *gin.Context) { nextStep(c, networkLayer, actionPicker) }, notifyState)
+	router.POST("/education/step-by-step/toggle", func(c *gin.Context) { toggleStepByStep(c, networkLayer, actionPicker) }, notifyState, triggerGetKvUpdate)
+	router.POST("/education/step-by-step/next-step", func(c *gin.Context) { nextStep(c, networkLayer, actionPicker) }, notifyState, triggerGetKvUpdate)
 	//router.Any("/education/subscribe-client-log", func(c *gin.Context) { clientLogSubscription(c) })
 	//router.Any("/education/subscribe-state", func(c *gin.Context) { subscribeToState(c, networkLayer, client) })
 	router.GET("/education/get-state", func(c *gin.Context) { getState(c) })
@@ -254,10 +254,13 @@ func watchKvSubscription(client consensus.ConsensusClient) {
 		changes, ok := <-ch
 		if !ok {
 			educationLogger.Info("Cancelled KV Watch subscription")
-			ch, err = client.SubscribeToChanges(context.TODO())
-			if err != nil {
-				educationLogger.ErrorErr(err, "Could not subscribe to KV changes")
-				return
+			for {
+				ch, err = client.SubscribeToChanges(context.TODO())
+				if err == nil {
+					break
+				}
+				educationLogger.ErrorErr(err, "Could not subscribe to KV changes. Retrying...")
+				time.Sleep(200 * time.Millisecond)
 			}
 		}
 
@@ -265,6 +268,7 @@ func watchKvSubscription(client consensus.ConsensusClient) {
 			UpdateType:   "watch-kv",
 			UpdateObject: KvWatchUpdate{ChangeLog: changes},
 		}
+		triggerGetKvUpdate(nil)
 		//err := conn.WriteJSON(KvWatchUpdate{ChangeLog: changes})
 		//if err != nil {
 		//	educationLogger.ErrorErr(err, "Could not write KV Watch update")
@@ -381,10 +385,6 @@ func storeKeyValue(c *gin.Context, client consensus.ConsensusClient) {
 		return
 	}
 
-	select {
-	case getKvUpdateChan <- struct{}{}:
-	default:
-	}
 	addToClientLog(fmt.Sprintf("🆗 PUT '%s' '%s' SUCCESS.", kvPair.Key, kvPair.Value))
 	c.Status(200)
 }
@@ -393,6 +393,13 @@ func deleteKeyValue(c *gin.Context, client consensus.ConsensusClient) {
 	var keyDelete KeyDelete
 	if err := c.BindJSON(&keyDelete); err != nil {
 		educationLogger.ErrorErr(err, "Could not read KeyDelete body")
+		c.AbortWithError(500, err)
+		return
+	}
+
+	err := client.DeleteKey(keyDelete.Key)
+	if err != nil {
+		educationLogger.ErrorErr(err, "Could not delete key")
 		if strings.Contains(err.Error(), "context deadline exceeded") {
 			addToClientLog(fmt.Sprintf("🕒 DELETE '%s' TIMEOUT.", keyDelete.Key))
 		} else {
@@ -402,17 +409,6 @@ func deleteKeyValue(c *gin.Context, client consensus.ConsensusClient) {
 		return
 	}
 
-	err := client.DeleteKey(keyDelete.Key)
-	if err != nil {
-		educationLogger.ErrorErr(err, "Could not delete key")
-		c.AbortWithError(500, err)
-		return
-	}
-
-	select {
-	case getKvUpdateChan <- struct{}{}:
-	default:
-	}
 	addToClientLog(fmt.Sprintf("🆗 DELETE '%s' SUCCESS.", keyDelete.Key))
 	c.Status(200)
 }
@@ -438,9 +434,12 @@ func toggleStepByStep(c *gin.Context, networkLayer *network.NetworkLayer, action
 func nextStep(c *gin.Context, networkLayer *network.NetworkLayer, actionPicker *setup.ActionPicker) {
 	action := actionPicker.GetAction(protocol.ActionType_CONTINUE_ACTION_TYPE)
 	action.Perform(func() { networkLayer.SetResetConn(true) }, networkLayer.GetRespChan())
+	c.Status(200)
+}
+
+func triggerGetKvUpdate(c *gin.Context) {
 	select {
 	case getKvUpdateChan <- struct{}{}:
 	default:
 	}
-	c.Status(200)
 }
