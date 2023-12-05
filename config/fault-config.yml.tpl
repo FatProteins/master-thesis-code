@@ -6,10 +6,10 @@ actions:
     probability: 1.0
   halt:
     probability: 0.0
-    halt-command: "docker exec ${CONSENSUS_CONTAINER} tc qdisc add dev eth0 root netem delay 90ms"
+    halt-command: "docker exec ${CONSENSUS_CONTAINER} tc qdisc add dev eno1 root netem delay 90ms"
   unhalt:
     probability: 0.0
-    unhalt-command: "docker exec ${CONSENSUS_CONTAINER} tc qdisc delete dev eth0 root netem delay 90ms"
+    unhalt-command: "docker exec ${CONSENSUS_CONTAINER} tc qdisc delete dev eno1 root netem delay 90ms"
   pause:
     probability: 0.0
     max-duration: 1000
