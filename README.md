@@ -52,7 +52,10 @@ instead of the original implementation:
 - https://github.com/FatProteins/etcd-fork
 - https://github.com/FatProteins/bft-smart-fork
 
-Make sure to change `REMOTE_DEPLOYMENT_DIR` in `deploy/cluster/.env` according to your remote directory.
+Make sure to change `REMOTE_DEPLOYMENT_DIR` in `deploy/cluster/.env` according to your remote directory when using
+a cluster setup.
+Also, change the location of the BFT-SMaRt fork in `build-bftsmart-client.sh` and adjust cluster-specific
+information, i.e. user and host.
 For the BFT-SMaRt client, a Dockerfile is provided `Dockerfile-bftsmart-client`. For etcd, the client is run
 without docker.
 
