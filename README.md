@@ -65,3 +65,6 @@ This deploys the backend locally with an etcd cluster.
 For the frontend, please refer to https://github.com/FatProteins/consensus-ui.
 
 Last relevant commit before thesis submission for the Consensus UI: e817b1e31f3d672012d0d9d2033bd80d79096a8d
+
+### Plotting Scripts
+Additional scripts for plot creation can be found in https://github.com/FatProteins/master-thesis-scripts.
