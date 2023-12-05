@@ -42,7 +42,7 @@ provided during deployment for each host.
 ## Experiments
 Checkout branch `performance-experiments` to
 - run scripts for performance experiments: produces CSV files with client request
-timings
+  timings
 - deploy etcd cluster or BFT-SMaRt cluster for fault experiments
 
 Last relevant commit before thesis submission for the experiments: a4eca30b8966fc87bcc15ea8b688c5b8cbd1e724
@@ -52,7 +52,10 @@ instead of the original implementation:
 - https://github.com/FatProteins/etcd-fork
 - https://github.com/FatProteins/bft-smart-fork
 
-Make sure to change `REMOTE_DEPLOYMENT_DIR` in `deploy/cluster/.env` according to your remote directory.
+Make sure to change `REMOTE_DEPLOYMENT_DIR` in `deploy/cluster/.env` according to your remote directory when using
+a cluster setup.
+Also, change the location of the BFT-SMaRt fork in `build-bftsmart-client.sh` and adjust cluster-specific
+information, i.e. user and host.
 For the BFT-SMaRt client, a Dockerfile is provided `Dockerfile-bftsmart-client`. For etcd, the client is run
 without docker.
 
